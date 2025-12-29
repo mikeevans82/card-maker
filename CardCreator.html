@@ -685,6 +685,9 @@
         }
 
         function onPointerDown(event) {
+            // Ignore clicks on UI elements (panels, buttons, inputs)
+            if (event.target !== renderer.domElement) return;
+
             if (STATE.viewMode === 'orbit') return; // Selection only in locked modes
 
             raycaster.setFromCamera(pointer, camera);
