@@ -1094,12 +1094,23 @@
                     }];
                     Canvas2D.render();
 
+                    e.target.value = ''; // Reset for re-use
+
                     // Chain next
-                    setTimeout(() => {
-                        alert("Now select the INSIDE image.");
+                    // Browser Security: Cannot open file picker from async callback without user gesture.
+                    // Show a transient "Next Step" button to capture a new user click.
+                    const nextBtn = document.createElement('button');
+                    nextBtn.innerText = "Click to Upload INSIDE Image (Step 2/2)";
+                    nextBtn.style.cssText = "position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:9999; padding:20px; font-size:1.2rem; cursor:pointer; background:var(--accent-color); color:white; border:none; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.5);";
+
+                    document.body.appendChild(nextBtn);
+
+                    nextBtn.onclick = () => {
+                        document.body.removeChild(nextBtn);
                         document.getElementById('file-input-scan-back').click();
-                    }, 500);
+                    };
                 };
+                img.onerror = () => alert("Failed to load Front image.");
                 img.src = evt.target.result;
             };
             reader.readAsDataURL(file);
@@ -1118,7 +1129,9 @@
                         width: Canvas2D.width, height: Canvas2D.height
                     }];
                     Canvas2D.render();
+                    e.target.value = ''; // Reset
                 };
+                img.onerror = () => alert("Failed to load Inside image.");
                 img.src = evt.target.result;
             };
             reader.readAsDataURL(file);
