@@ -1367,14 +1367,25 @@
     setUVs(rOut.geometry, 0.0, 0.5); // Fixed Back
     rightGroup.add(rOut);
     
-    // Animate open
-    let t = 0;
+    // Interaction State
+    const CLOSED_ANGLE = Math.PI * 0.9; // 90% Closed
+    const OPEN_ANGLE = Math.PI * 0.1;   // 90% Open
+    let targetAngle = CLOSED_ANGLE; 
+    leftGroup.rotation.y = CLOSED_ANGLE;
+
+    let isDragging = false;
+    document.addEventListener('mousedown', () => isDragging = false);
+    document.addEventListener('mousemove', () => isDragging = true);
+    document.addEventListener('mouseup', () => {
+        if (!isDragging) {
+             targetAngle = (targetAngle === CLOSED_ANGLE) ? OPEN_ANGLE : CLOSED_ANGLE;
+        }
+    });
+
     function animate() {
         requestAnimationFrame(animate);
-        t += 0.005;
-        // Gentle sway of Left Wing (Front)
-        const sway = Math.sin(t) * 0.1 + 0.1;
-        leftGroup.rotation.y = sway;
+        // Smooth Lerp
+        leftGroup.rotation.y += (targetAngle - leftGroup.rotation.y) * 0.05;
         controls.update();
         renderer.render(scene, camera);
     }
