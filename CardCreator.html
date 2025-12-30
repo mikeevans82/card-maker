@@ -301,6 +301,7 @@
 
             <div class="control-group">
                 <h3>Project</h3>
+                <button id="btn-new-card" style="margin-bottom: 5px;">+ New Card</button>
                 <button id="btn-save-project">Save Project</button>
                 <button id="btn-load-project">Load Project</button>
                 <button id="btn-export-html" class="primary">Export to HTML</button>
@@ -1179,6 +1180,17 @@
             }
         };
 
+        const btnNew = document.getElementById('btn-new-card');
+        btnNew.onclick = () => {
+            const isEmpty = STATE.layers.outside.length === 0 && STATE.layers.inside.length === 0;
+            if (!isEmpty && !confirm("Start new card? Unsaved changes will be lost.")) return;
+
+            STATE.layers.outside = [];
+            STATE.layers.inside = [];
+            STATE.selectedElement = null;
+            Canvas2D.render();
+        };
+
         const btnCatalog = document.getElementById('btn-load-project');
         btnCatalog.innerText = "Catalog";
 
@@ -1190,6 +1202,8 @@
             const header = document.createElement('div');
             header.innerHTML = "<h2>Saved Cards Catalog</h2><p>Select a card to load:</p>";
             overlay.appendChild(header);
+
+
 
             const grid = document.createElement('div');
             grid.style.cssText = "display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:20px; overflow-y:auto; padding:20px 0;";
@@ -1217,13 +1231,13 @@
                 cardir.innerHTML = `
                     <div style="font-weight:bold; font-size:1.1rem; margin-bottom:5px;">${projName}</div>
                     <div style="font-size:0.8rem; color:#aaa;">${new Date(meta.date || 0).toLocaleDateString()}</div>
-                    <div style="font-size:0.8rem; color:#888;">${(meta.outside?.length || 0) + (meta.inside?.length || 0)} items</div>
                 `;
                 cardir.onmouseover = () => cardir.style.background = '#444';
                 cardir.onmouseout = () => cardir.style.background = '#333';
 
                 cardir.onclick = async () => {
-                    if (!confirm(`Load "${projName}"? Unsaved changes will be lost.`)) return;
+                    const isEmpty = STATE.layers.outside.length === 0 && STATE.layers.inside.length === 0;
+                    if (!isEmpty && !confirm(`Load "${projName}"? Unsaved changes will be lost.`)) return;
 
                     try {
                         const data = JSON.parse(localStorage.getItem(key));
@@ -1309,8 +1323,8 @@
     texOut.colorSpace = THREE.SRGBColorSpace;
     texIn.colorSpace = THREE.SRGBColorSpace;
     
-    const matOut = new THREE.MeshStandardMaterial({map:texOut, roughness:0.6, metalness:0.1, side:THREE.FrontSide});
-    const matIn = new THREE.MeshStandardMaterial({map:texIn, roughness:0.8, side:THREE.FrontSide});
+    const matOut = new THREE.MeshBasicMaterial({map:texOut, side:THREE.FrontSide});
+    const matIn = new THREE.MeshBasicMaterial({map:texIn, side:THREE.FrontSide});
 
     const leftGroup = new THREE.Group();
     const rightGroup = new THREE.Group();
