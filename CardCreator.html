@@ -889,6 +889,37 @@
 
         document.getElementById('btn-add-text').onclick = addText;
 
+        function addRect() {
+            if (STATE.viewMode === 'orbit') {
+                setMode('front');
+            }
+            setTimeout(() => {
+                const isInside = STATE.viewMode.includes('inside');
+                const list = isInside ? STATE.layers.inside : STATE.layers.outside;
+
+                // Determine center
+                let x = isInside ? (STATE.viewMode === 'inside-right' ? Canvas2D.width * 0.75 : Canvas2D.width * 0.25)
+                    : (STATE.viewMode === 'front' ? Canvas2D.width * 0.75 : Canvas2D.width * 0.25);
+
+                const newItem = {
+                    id: Date.now(),
+                    type: 'rect',
+                    x: x,
+                    y: Canvas2D.height / 2,
+                    width: 200,
+                    height: 100,
+                    rotation: 0,
+                    color: '#ff0000'
+                };
+
+                list.push(newItem);
+                STATE.selectedElement = newItem;
+                Canvas2D.render();
+                showProperties(newItem);
+            }, 100);
+        }
+        document.getElementById('btn-add-rect').onclick = addRect;
+
         // --- Properties Panel ---
         function showProperties(item) {
             const p = document.getElementById('prop-panel');
@@ -916,6 +947,10 @@
                     item.height = parseInt(v); // approx
                     Canvas2D.render();
                 }));
+                content.appendChild(createPropColor('Color', item.color, v => { item.color = v; Canvas2D.render(); }));
+            } else if (item.type === 'rect') {
+                content.appendChild(createPropInput('Width', item.width, v => { item.width = parseInt(v); Canvas2D.render(); }));
+                content.appendChild(createPropInput('Height', item.height, v => { item.height = parseInt(v); Canvas2D.render(); }));
                 content.appendChild(createPropColor('Color', item.color, v => { item.color = v; Canvas2D.render(); }));
             }
         }
