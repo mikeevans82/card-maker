@@ -455,9 +455,9 @@
         window.texOutside = texOutside;
         window.texInside = texInside;
 
-        // Use Basic Material to ensure visibility regardless of lighting
-        const matOutside = new THREE.MeshBasicMaterial({ map: texOutside, side: THREE.FrontSide });
-        const matInside = new THREE.MeshBasicMaterial({ map: texInside, side: THREE.FrontSide });
+        // Use Basic Material with DoubleSide to ensure visibility and Raycast hits
+        const matOutside = new THREE.MeshBasicMaterial({ map: texOutside, side: THREE.DoubleSide });
+        const matInside = new THREE.MeshBasicMaterial({ map: texInside, side: THREE.DoubleSide });
 
         // Groups
         const leftWing = new THREE.Group();
@@ -661,25 +661,29 @@
                 handleDrag();
             }
         }
+        function getCanvasCoords(hit) {
+            const uv = hit.uv;
+            let cx = uv.x * Canvas2D.width;
+            const cy = (1 - uv.y) * Canvas2D.height;
+
+            // Standard mapping ensures correct Drag Direction (Left moves Left).
+            // Offset (-250) compensates for visual misalignment where click target 
+            // is effectively shifted right relative to visual position.
+            if (hit.object === leftOutsideMesh || hit.object === rightOutsideMesh) {
+                cx -= 250;
+            }
+
+            return { x: cx, y: cy };
+        }
 
         function handleDrag() {
-            // Project pointer to the specific plane we are editing
-            // We know which panel we are on based on STATE.viewMode or STATE.selectedPanel
-            // But simply raycasting against the mesh is easier.
-
             raycaster.setFromCamera(pointer, camera);
             const intersects = raycaster.intersectObjects([leftInsideMesh, rightInsideMesh, leftOutsideMesh, rightOutsideMesh]);
 
             if (intersects.length > 0) {
-                const uv = intersects[0].uv;
-                if (!uv) return;
-
-                // Convert UV to Canvas Coords
-                const cx = uv.x * Canvas2D.width;
-                const cy = (1 - uv.y) * Canvas2D.height; // UV y is usually bottom-up, Canvas top-down
-
-                STATE.selectedElement.x = cx;
-                STATE.selectedElement.y = cy;
+                const pos = getCanvasCoords(intersects[0]);
+                STATE.selectedElement.x = pos.x;
+                STATE.selectedElement.y = pos.y;
                 Canvas2D.render();
             }
         }
@@ -688,10 +692,9 @@
             // Ignore clicks on UI elements (panels, buttons, inputs)
             if (event.target !== renderer.domElement) return;
 
-            if (STATE.viewMode === 'orbit') return; // Selection only in locked modes
+            if (STATE.viewMode === 'orbit') return;
 
             raycaster.setFromCamera(pointer, camera);
-            // Filter meshes based on view mode to avoid selecting hidden back-faces
             const targets = [];
             if (STATE.viewMode === 'front' || STATE.viewMode === 'back') {
                 targets.push(leftOutsideMesh, rightOutsideMesh);
@@ -703,11 +706,9 @@
 
             if (intersects.length > 0) {
                 const hit = intersects[0];
-                const uv = hit.uv;
-
-                // Check layers for intersection
-                const cx = uv.x * Canvas2D.width;
-                const cy = (1 - uv.y) * Canvas2D.height;
+                const pos = getCanvasCoords(hit);
+                const cx = pos.x;
+                const cy = pos.y;
 
                 // Determine active canvas (Inside or Outside)
                 const isInside = (hit.object === leftInsideMesh || hit.object === rightInsideMesh);
@@ -717,8 +718,9 @@
                 let found = null;
                 for (let i = list.length - 1; i >= 0; i--) {
                     const el = list[i];
-                    // Simple box check
-                    if (Math.abs(cx - el.x) < el.width / 2 && Math.abs(cy - el.y) < el.height / 2) {
+                    // Simple box check with padding
+                    const padding = 25;
+                    if (Math.abs(cx - el.x) < (el.width / 2 + padding) && Math.abs(cy - el.y) < (el.height / 2 + padding)) {
                         found = el;
                         break;
                     }
@@ -727,7 +729,7 @@
                 if (found) {
                     STATE.selectedElement = found;
                     isDragging = true;
-                    controls.enabled = false; // Disable orbit
+                    controls.enabled = false;
                     showProperties(found);
                     Canvas2D.render();
                 } else {
