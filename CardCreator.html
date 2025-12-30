@@ -669,9 +669,9 @@
             // Standard mapping ensures correct Drag Direction (Left moves Left).
             // Offset (-250) compensates for visual misalignment where click target 
             // is effectively shifted right relative to visual position.
-            if (hit.object === leftOutsideMesh || hit.object === rightOutsideMesh) {
-                cx -= 250;
-            }
+
+            cx -= 250;
+
 
             return { x: cx, y: cy };
         }
