@@ -1,0 +1,1430 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Greeting Card Creator</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Three.js & Dependencies via CDN -->
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #121212;
+            --panel-bg: rgba(30, 30, 30, 0.7);
+            --panel-border: rgba(255, 255, 255, 0.1);
+            --accent-color: #646cff;
+            --accent-hover: #7b83ff;
+            --text-main: #ffffff;
+            --text-sec: #aaaaaa;
+            --glass-blur: 12px;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background: radial-gradient(circle at 50% 50%, #2a2a2a 0%, #121212 100%);
+            color: var(--text-main);
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #app {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+        }
+
+        /* 3D Viewport */
+        #viewport {
+            flex-grow: 1;
+            position: relative;
+        }
+
+        #loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 1000;
+        }
+
+        /* Sidebar Panels */
+        .panel {
+            width: 300px;
+            background: var(--panel-bg);
+            backdrop-filter: blur(var(--glass-blur));
+            -webkit-backdrop-filter: blur(var(--glass-blur));
+            border-right: 1px solid var(--panel-border);
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            box-sizing: border-box;
+            z-index: 10;
+            transition: transform 0.3s ease;
+        }
+
+        .panel-right {
+            border-right: none;
+            border-left: 1px solid var(--panel-border);
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+        }
+
+        h2,
+        h3 {
+            margin-top: 0;
+            font-weight: 500;
+            color: var(--text-main);
+        }
+
+        h3 {
+            font-size: 1rem;
+            color: var(--text-sec);
+            margin-top: 1rem;
+        }
+
+        /* Controls */
+        button {
+            background: #333;
+            color: white;
+            border: 1px solid var(--panel-border);
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-bottom: 8px;
+            transition: background 0.2s;
+            font-family: inherit;
+        }
+
+        button:hover {
+            background: #444;
+        }
+
+        button.primary {
+            background: var(--accent-color);
+            border-color: var(--accent-color);
+        }
+
+        button.primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .control-group {
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        label {
+            font-size: 0.85rem;
+            color: var(--text-sec);
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        select {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--panel-border);
+            color: white;
+            padding: 8px;
+            border-radius: 4px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        /* Asset Grid */
+        .asset-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 10px;
+            overflow-y: auto;
+            flex-grow: 1;
+            padding-right: 5px;
+        }
+
+        .asset-item {
+            aspect-ratio: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            cursor: grab;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid transparent;
+        }
+
+        .asset-item:hover {
+            border-color: var(--accent-color);
+        }
+
+        .asset-item img {
+            max-width: 100%;
+            max-height: 100%;
+            pointer-events: none;
+        }
+
+        /* View Mode Toggles */
+        .view-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--panel-bg);
+            backdrop-filter: blur(var(--glass-blur));
+            padding: 10px;
+            border-radius: 30px;
+            display: flex;
+            gap: 10px;
+            border: 1px solid var(--panel-border);
+            z-index: 20;
+        }
+
+        .view-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-sec);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+
+        .view-btn.active {
+            background: var(--accent-color);
+            color: white;
+        }
+
+        /* Hidden Canvas */
+        .offscreen-canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            opacity: 0;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        /* Animation Range */
+        #anim-control {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 20;
+            background: var(--panel-bg);
+            padding: 8px 16px;
+            border-radius: 20px;
+            backdrop-filter: blur(var(--glass-blur));
+            border: 1px solid var(--panel-border);
+        }
+
+        input[type="range"] {
+            accent-color: var(--accent-color);
+        }
+
+        .toolbar-icon {
+            margin-right: 5px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* File Input hidden */
+        #file-input {
+            display: none;
+        }
+
+        /* Draggable highlight on canvas */
+        .drag-over {
+            box-shadow: inset 0 0 20px var(--accent-color);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="app">
+        <!-- Left Sidebar: Assets & Tools -->
+        <div class="panel">
+            <h2>Card Creator</h2>
+
+            <div class="control-group">
+                <h3>Content Tools</h3>
+                <button id="btn-add-text">Add Text</button>
+                <button id="btn-add-rect">Add Rectangle</button>
+                <button id="btn-import-scan">Import Scanned Card</button>
+            </div>
+
+            <div class="control-group" style="flex-grow: 1; overflow: hidden; display: flex; flex-direction: column;">
+                <h3>Assets Catalog</h3>
+                <button id="btn-link-folder">📂 Link Local Folder</button>
+                <div id="asset-catalog" class="asset-grid">
+                    <!-- Assets will appear here -->
+                </div>
+                <div style="font-size: 0.75rem; color: #666; margin-top: 5px; text-align: center;">
+                    Drag images onto card
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>Project</h3>
+                <button id="btn-new-card" style="margin-bottom: 5px;">+ New Card</button>
+                <button id="btn-save-project">Save Project</button>
+                <button id="btn-load-project">Load Project</button>
+                <button id="btn-export-html" class="primary">Export to HTML</button>
+            </div>
+        </div>
+
+        <!-- Main Viewport -->
+        <div id="viewport">
+            <canvas id="three-canvas"></canvas>
+
+            <!-- Top Control: Open/Close -->
+            <div id="anim-control">
+                <span>Closed</span>
+                <input type="range" id="slider-open" min="0" max="1" step="0.01" value="0.5">
+                <span>Open</span>
+            </div>
+
+            <!-- View Controls (Focus Modes) -->
+            <div class="view-controls">
+                <button class="view-btn active" data-view="orbit">Free View</button>
+                <button class="view-btn" data-view="front">Front</button>
+                <button class="view-btn" data-view="inside-left">Inside Left</button>
+                <button class="view-btn" data-view="inside-right">Inside Right</button>
+                <button class="view-btn" data-view="back">Back</button>
+            </div>
+        </div>
+
+        <!-- Right Sidebar: Properties (Visible on Selection) -->
+        <div class="panel panel-right" id="prop-panel" style="transform: translateX(110%);">
+            <h2>Properties</h2>
+            <div id="props-content">
+                <!-- Dynamic Properties -->
+            </div>
+            <button id="btn-delete-element" style="background: #a33; margin-top: 20px;">Delete Element</button>
+            <button id="btn-close-props" style="margin-top: 10px;">Close</button>
+        </div>
+    </div>
+
+    <div id="loading-overlay">
+        <h2>Loading...</h2>
+        <p id="loading-msg" style="margin-top:10px; font-size: 0.9rem; color:#aaa;">Connecting to libraries...</p>
+    </div>
+
+    <!-- Hidden inputs/canvases -->
+    <input type="file" id="file-input-scan-front" accept="image/*">
+    <input type="file" id="file-input-scan-back" accept="image/*">
+    <div class="offscreen-canvas-container">
+        <canvas id="tex-canvas-outside" width="2048" height="1582"></canvas>
+        <canvas id="tex-canvas-inside" width="2048" height="1582"></canvas>
+    </div>
+
+    <!-- Error Handler -->
+    <script>
+        setTimeout(() => {
+            if (!window.THREE && !document.querySelector('canvas').clientHeight) {
+                document.getElementById('loading-msg').innerHTML =
+                    "Could not load Three.js.<br>Please check your internet connection and reload.<br>This app requires an internet connection for the first run to cache libraries.";
+                document.getElementById('loading-msg').style.color = "#ff6b6b";
+            }
+        }, 5000);
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // Hide loader
+        document.getElementById('loading-overlay').classList.add('hidden');
+
+        // --- State Management ---
+        const STATE = {
+            cardOpen: 0.5, // 0 to 1
+            viewMode: 'orbit', // orbit, front, inside-left, inside-right, back
+            selectedElement: null,
+            selectedPanel: null, // 'front', 'back', 'inside-left', 'inside-right'
+            db: null, // IndexedDB
+
+            // Canvas Data Models
+            // Each item: { id, type: 'text'|'image'|'shape', x, y, width, height, rotation, ...props }
+            layers: {
+                outside: [],
+                inside: []
+            },
+
+            assets: [] // Loaded images blobs
+        };
+
+        /** 
+         * Constants
+         * Standard Letter: 11in x 8.5in
+         * Folded: 5.5in x 8.5in
+         * 3D Units: 1 unit = 1 inch
+         */
+        const DIMS = {
+            width: 11,
+            height: 8.5,
+            panelWidth: 5.5
+        };
+
+        // --- 3D Scene Setup ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x222222);
+
+        // Camera
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 10, 15);
+
+        const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('three-canvas'), antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+
+        // Controls
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+
+        // Lights
+        const ambLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 10, 7);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+
+        // Global Error Handler for user feedback
+        window.onerror = function (msg, url, line) {
+            alert("JS Error: " + msg + "\nLine: " + line);
+        };
+
+        // --- Card Geometry Setup ---
+        // Reformulated for Standard English Opening (Hinge on Left, Front Cover opens L->R).
+        // Left Wing = Front Cover + Inside Left.
+        // Right Wing = Back Cover + Inside Right.
+
+        const PAPER_THICKNESS = 0.01;
+        const P_WIDTH = DIMS.panelWidth; // 5.5
+        const P_HEIGHT = DIMS.height;    // 8.5
+        const P_CENTER_OFFSET = P_WIDTH / 2; // 2.75
+
+        // Materials (Canvas Textures)
+        const canvasOutside = document.getElementById('tex-canvas-outside');
+        const canvasInside = document.getElementById('tex-canvas-inside');
+
+        const texOutside = new THREE.CanvasTexture(canvasOutside);
+        texOutside.colorSpace = THREE.SRGBColorSpace;
+        const texInside = new THREE.CanvasTexture(canvasInside);
+        texInside.colorSpace = THREE.SRGBColorSpace;
+
+        // Expose for debug/Canvas2D access
+        window.texOutside = texOutside;
+        window.texInside = texInside;
+
+        // Use Basic Material with DoubleSide to ensure visibility and Raycast hits
+        const matOutside = new THREE.MeshBasicMaterial({ map: texOutside, side: THREE.DoubleSide });
+        const matInside = new THREE.MeshBasicMaterial({ map: texInside, side: THREE.DoubleSide });
+
+        // Groups
+        const leftWing = new THREE.Group();
+        const rightWing = new THREE.Group();
+
+        // Offset Left Wing (Front) forward to fold ON TOP of Right Wing (Back)
+        leftWing.position.z = PAPER_THICKNESS * 2;
+
+        scene.add(leftWing);
+        scene.add(rightWing);
+
+        // Standard Centered Plane
+        const geoBase = new THREE.PlaneGeometry(P_WIDTH, P_HEIGHT);
+
+        // --- Left Wing (Front Cover + Inside Left) ---
+        // Pivot at 0. Panel extends -X.
+
+        const leftInsideMesh = new THREE.Mesh(geoBase.clone(), matInside);
+        leftInsideMesh.position.set(-P_CENTER_OFFSET, 0, PAPER_THICKNESS);
+        setUVs(leftInsideMesh.geometry, 0, 0.5); // Inside Left
+
+        const leftOutsideMesh = new THREE.Mesh(geoBase.clone(), matOutside);
+        leftOutsideMesh.position.set(-P_CENTER_OFFSET, 0, -PAPER_THICKNESS);
+        leftOutsideMesh.rotation.y = Math.PI;
+        // FRONT COVER (Canvas 0.5-1.0).
+        // Rot 180. Local Left(-X) is World Right(Spine).
+        // Map U0(Edge) -> 1.0. U1(Spine) -> 0.5.
+        setUVs(leftOutsideMesh.geometry, 0.5, 1.0); // Fixed Front UVs
+
+        leftWing.add(leftInsideMesh);
+        leftWing.add(leftOutsideMesh);
+
+        // --- Right Wing (Back Cover + Inside Right) ---
+        // Pivot at 0. Panel extends +X. Stationary.
+
+        const rightInsideMesh = new THREE.Mesh(geoBase.clone(), matInside);
+        rightInsideMesh.position.set(P_CENTER_OFFSET, 0, PAPER_THICKNESS);
+        setUVs(rightInsideMesh.geometry, 0.5, 1.0); // Inside Right
+
+        const rightOutsideMesh = new THREE.Mesh(geoBase.clone(), matOutside);
+        rightOutsideMesh.position.set(P_CENTER_OFFSET, 0, -PAPER_THICKNESS);
+        rightOutsideMesh.rotation.y = Math.PI;
+        // BACK COVER (Canvas 0.0-0.5).
+        // Rot 180. Local Left(-X) is World Right(Edge).
+        // Map U0(Spine) -> 0.5. U1(Edge) -> 0.0.
+        setUVs(rightOutsideMesh.geometry, 0.0, 0.5); // Fixed Back UVs
+
+        rightWing.add(rightInsideMesh);
+        rightWing.add(rightOutsideMesh);
+
+
+        // --- Helper: UV Mapping ---
+        function setUVs(geometry, uMin, uMax) {
+            const uvs = geometry.attributes.uv;
+            for (let i = 0; i < uvs.count; i++) {
+                const u = uvs.getX(i);
+                const newU = uMin + u * (uMax - uMin);
+                uvs.setX(i, newU);
+            }
+            uvs.needsUpdate = true;
+        }
+
+        // --- Animation & View Logic ---
+
+        // Define targets. 
+        // Angle: 0 -> -PI (Right wing folds Over) -> Now Left Wing folds +PI
+        const viewPositions = {
+            'orbit': { pos: null, look: null },
+            'front': {
+                pos: new THREE.Vector3(P_CENTER_OFFSET, 0, 15), // Looking at Closed Front (+X)
+                look: new THREE.Vector3(P_CENTER_OFFSET, 0, 0)
+            },
+            'back': {
+                pos: new THREE.Vector3(P_CENTER_OFFSET, 0, -15), // Looking at Closed Back (+X)
+                look: new THREE.Vector3(P_CENTER_OFFSET, 0, 0)
+            },
+            'inside-left': {
+                pos: new THREE.Vector3(-P_CENTER_OFFSET, 0, 15),
+                look: new THREE.Vector3(-P_CENTER_OFFSET, 0, 0)
+            },
+            'inside-right': {
+                pos: new THREE.Vector3(P_CENTER_OFFSET, 0, 15),
+                look: new THREE.Vector3(P_CENTER_OFFSET, 0, 0)
+            }
+        };
+
+        function updateFold(openFactor) {
+            // openFactor: 1.0 (Flat Open) -> 0.0 (Closed)
+            // Left Wing rotates 0 -> +PI.
+
+            const angle = (1 - openFactor) * Math.PI;
+            // Limit slightly to prevent mesh collision if logic fails
+            const clampAngle = Math.min(angle, Math.PI - 0.05);
+
+            leftWing.rotation.y = clampAngle;
+            STATE.cardOpen = openFactor;
+        }
+
+        document.getElementById('slider-open').addEventListener('input', (e) => {
+            updateFold(parseFloat(e.target.value));
+            if (STATE.viewMode !== 'orbit') return;
+        });
+
+        // --- Canvas Drawing Logic ---
+        const Canvas2D = {
+            ctxOut: canvasOutside.getContext('2d'),
+            ctxIn: canvasInside.getContext('2d'),
+            width: 2048,
+            height: 1582,
+
+            // Redraw entire canvas from state
+            render: function () {
+                console.log("Canvas2D: Rendering...");
+                try {
+                    this.clear(this.ctxOut);
+                    this.clear(this.ctxIn);
+
+                    // Draw backgrounds (White paper)
+                    this.ctxOut.fillStyle = '#ffffff';
+                    this.ctxOut.fillRect(0, 0, this.width, this.height);
+
+                    this.ctxIn.fillStyle = '#ffffff';
+                    this.ctxIn.fillRect(0, 0, this.width, this.height);
+
+                    // Draw guide link (fold)
+                    this.drawGuide(this.ctxOut);
+                    this.drawGuide(this.ctxIn);
+
+                    // Render Layers
+                    if (STATE.layers) {
+                        STATE.layers.outside.forEach(l => this.drawLayer(this.ctxOut, l));
+                        STATE.layers.inside.forEach(l => this.drawLayer(this.ctxIn, l));
+                    }
+
+                    // Update Textures
+                    if (window.texOutside) texOutside.needsUpdate = true;
+                    if (window.texInside) texInside.needsUpdate = true;
+
+                } catch (e) {
+                    console.error("Canvas Render Error", e);
+                    alert("Canvas Render Error: " + e.message);
+                }
+            },
+
+            clear: function (ctx) {
+                ctx.clearRect(0, 0, this.width, this.height);
+            },
+
+            drawGuide: function (ctx) {
+                ctx.strokeStyle = '#eee';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(this.width / 2, 0);
+                ctx.lineTo(this.width / 2, this.height);
+                ctx.stroke();
+            },
+
+            drawLayer: function (ctx, layer) {
+                ctx.save();
+                ctx.translate(layer.x, layer.y);
+                ctx.rotate(layer.rotation || 0);
+
+                if (layer === STATE.selectedElement) {
+                    // Highlight selection
+                    ctx.strokeStyle = '#646cff';
+                    ctx.lineWidth = 4;
+                    ctx.strokeRect(-layer.width / 2 - 2, -layer.height / 2 - 2, layer.width + 4, layer.height + 4);
+                }
+
+                if (layer.type === 'text') {
+                    ctx.font = `${layer.bold ? 'bold ' : ''}${layer.fontSize}px ${layer.fontFamily}`;
+                    ctx.fillStyle = layer.color;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(layer.text, 0, 0);
+                } else if (layer.type === 'image') {
+                    if (layer.imgElement) {
+                        ctx.drawImage(layer.imgElement, -layer.width / 2, -layer.height / 2, layer.width, layer.height);
+                    }
+                } else if (layer.type === 'rect') {
+                    ctx.fillStyle = layer.color;
+                    ctx.fillRect(-layer.width / 2, -layer.height / 2, layer.width, layer.height);
+                }
+
+                ctx.restore();
+            }
+        };
+
+        // --- Interaction / Raycaster Logic ---
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2();
+        let isDragging = false;
+        let dragStart = { x: 0, y: 0 };
+        let initialElemPos = { x: 0, y: 0 };
+
+        function onPointerMove(event) {
+            pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+            pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+            if (isDragging && STATE.selectedElement && STATE.viewMode !== 'orbit') {
+                handleDrag();
+            }
+        }
+        function getCanvasCoords(hit) {
+            const uv = hit.uv;
+            let cx = uv.x * Canvas2D.width;
+            const cy = (1 - uv.y) * Canvas2D.height;
+
+            // Standard mapping ensures correct Drag Direction (Left moves Left).
+            // Offset (-250) compensates for visual misalignment where click target 
+            // is effectively shifted right relative to visual position.
+
+            cx -= 250;
+
+
+            return { x: cx, y: cy };
+        }
+
+        function handleDrag() {
+            raycaster.setFromCamera(pointer, camera);
+            const intersects = raycaster.intersectObjects([leftInsideMesh, rightInsideMesh, leftOutsideMesh, rightOutsideMesh]);
+
+            if (intersects.length > 0) {
+                const pos = getCanvasCoords(intersects[0]);
+                STATE.selectedElement.x = pos.x;
+                STATE.selectedElement.y = pos.y;
+                Canvas2D.render();
+            }
+        }
+
+        function onPointerDown(event) {
+            // Ignore clicks on UI elements (panels, buttons, inputs)
+            if (event.target !== renderer.domElement) return;
+
+            if (STATE.viewMode === 'orbit') return;
+
+            raycaster.setFromCamera(pointer, camera);
+            const targets = [];
+            if (STATE.viewMode === 'front' || STATE.viewMode === 'back') {
+                targets.push(leftOutsideMesh, rightOutsideMesh);
+            } else {
+                targets.push(leftInsideMesh, rightInsideMesh);
+            }
+
+            const intersects = raycaster.intersectObjects(targets);
+
+            if (intersects.length > 0) {
+                const hit = intersects[0];
+                const pos = getCanvasCoords(hit);
+                const cx = pos.x;
+                const cy = pos.y;
+
+                // Determine active canvas (Inside or Outside)
+                const isInside = (hit.object === leftInsideMesh || hit.object === rightInsideMesh);
+                const list = isInside ? STATE.layers.inside : STATE.layers.outside;
+
+                // Find clicked element (reverse order for z-index)
+                let found = null;
+                for (let i = list.length - 1; i >= 0; i--) {
+                    const el = list[i];
+                    // Simple box check with padding
+                    const padding = 25;
+                    if (Math.abs(cx - el.x) < (el.width / 2 + padding) && Math.abs(cy - el.y) < (el.height / 2 + padding)) {
+                        found = el;
+                        break;
+                    }
+                }
+
+                if (found) {
+                    STATE.selectedElement = found;
+                    isDragging = true;
+                    controls.enabled = false;
+                    showProperties(found);
+                    Canvas2D.render();
+                } else {
+                    STATE.selectedElement = null;
+                    document.getElementById('prop-panel').style.transform = 'translateX(110%)';
+                    Canvas2D.render();
+                }
+            }
+        }
+
+        function onPointerUp() {
+            isDragging = false;
+            if (STATE.viewMode === 'orbit') controls.enabled = true;
+        }
+
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerdown', onPointerDown);
+        window.addEventListener('pointerup', onPointerUp);
+
+        // --- View Modes ---
+        // viewPositions is defined above in the geometry section
+
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const mode = btn.dataset.view;
+                setMode(mode);
+            });
+        });
+
+        function setMode(mode) {
+            STATE.viewMode = mode;
+            document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector(`.view-btn[data-view="${mode}"]`).classList.add('active');
+
+            if (mode === 'orbit') {
+                controls.enabled = true;
+                // Tween camera back to default
+                animateCamera(new THREE.Vector3(0, 10, 15), new THREE.Vector3(0, 0, 0));
+                return;
+            }
+
+            controls.enabled = false;
+
+            // Auto-open/close card based on view
+            if (mode === 'front') {
+                // Close card to see front flat
+                // Front panel is Right Wing Outside. 
+                // If closed (0), Right folds over. We see Front.
+                // Wait, if closed, Front is on top.
+                gsapLikeFold(0);
+                // Pos
+                const t = viewPositions['front'];
+                animateCamera(t.pos, t.look);
+            } else if (mode === 'back') {
+                // Close card also? 
+                // Back panel is Left Wing Outside.
+                gsapLikeFold(0); // If closed, we can see back.
+                // But if closed, the Right Wing covers the Left Wing (Inside).
+                // The Back Panel is the "Back Cover".
+                // Camera needs to be behind card.
+                const t = viewPositions['back'];
+                animateCamera(t.pos, t.look);
+            } else {
+                // Inside views: Open card flat
+                gsapLikeFold(1);
+                const t = viewPositions[mode];
+                animateCamera(t.pos, t.look);
+            }
+        }
+
+        function animateCamera(targetPos, targetLook) {
+            const startPos = camera.position.clone();
+            const startLook = controls.target.clone();
+
+            let t = 0;
+            const duration = 1000; // ms
+            const start = performance.now();
+
+            function tick(now) {
+                const elapsed = now - start;
+                t = Math.min(elapsed / duration, 1);
+                // EaseInOutQuad
+                const ease = t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+
+                camera.position.lerpVectors(startPos, targetPos, ease);
+                controls.target.lerpVectors(startLook, targetLook, ease);
+                controls.update(); // important
+
+                if (t < 1) requestAnimationFrame(tick);
+            }
+            requestAnimationFrame(tick);
+        }
+
+        function gsapLikeFold(targetVal) {
+            const startVal = STATE.cardOpen;
+            let t = 0;
+            const duration = 800;
+            const start = performance.now();
+
+            function tick(now) {
+                const elapsed = now - start;
+                t = Math.min(elapsed / duration, 1);
+                const ease = t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+
+                const val = startVal + (targetVal - startVal) * ease;
+                updateFold(val);
+                document.getElementById('slider-open').value = val;
+
+                if (t < 1) requestAnimationFrame(tick);
+            }
+            requestAnimationFrame(tick);
+        }
+
+        // --- Tool Logic ---
+        function addText() {
+            // Auto-switch to Front view if in Orbit, to make it easier for user
+            if (STATE.viewMode === 'orbit') {
+                setMode('front');
+            }
+
+            // Allow transition time if we just switched
+            setTimeout(() => {
+                const isInside = STATE.viewMode.includes('inside');
+                const list = isInside ? STATE.layers.inside : STATE.layers.outside;
+
+                // Determine center based on current view
+                let x = isInside ? (STATE.viewMode === 'inside-right' ? Canvas2D.width * 0.75 : Canvas2D.width * 0.25)
+                    : (STATE.viewMode === 'front' ? Canvas2D.width * 0.75 : Canvas2D.width * 0.25);
+
+                const newItem = {
+                    id: Date.now(),
+                    type: 'text',
+                    text: 'New Text',
+                    x: x,
+                    y: Canvas2D.height / 2,
+                    fontSize: 60,
+                    fontFamily: 'Inter',
+                    color: '#000000',
+                    bold: false,
+                    rotation: 0,
+                    width: 0, height: 0
+                };
+
+                // Approx dimensions
+                const ctx = isInside ? Canvas2D.ctxIn : Canvas2D.ctxOut;
+                ctx.font = `60px Inter`;
+                const m = ctx.measureText(newItem.text);
+                newItem.width = m.width;
+                newItem.height = 60;
+
+                list.push(newItem);
+                STATE.selectedElement = newItem;
+                Canvas2D.render();
+                showProperties(newItem);
+            }, 100);
+        }
+
+        document.getElementById('btn-add-text').onclick = addText;
+
+        function addRect() {
+            if (STATE.viewMode === 'orbit') {
+                setMode('front');
+            }
+            setTimeout(() => {
+                const isInside = STATE.viewMode.includes('inside');
+                const list = isInside ? STATE.layers.inside : STATE.layers.outside;
+
+                // Determine center
+                let x = isInside ? (STATE.viewMode === 'inside-right' ? Canvas2D.width * 0.75 : Canvas2D.width * 0.25)
+                    : (STATE.viewMode === 'front' ? Canvas2D.width * 0.75 : Canvas2D.width * 0.25);
+
+                const newItem = {
+                    id: Date.now(),
+                    type: 'rect',
+                    x: x,
+                    y: Canvas2D.height / 2,
+                    width: 200,
+                    height: 100,
+                    rotation: 0,
+                    color: '#ff0000'
+                };
+
+                list.push(newItem);
+                STATE.selectedElement = newItem;
+                Canvas2D.render();
+                showProperties(newItem);
+            }, 100);
+        }
+        document.getElementById('btn-add-rect').onclick = addRect;
+
+        // --- Properties Panel ---
+        function showProperties(item) {
+            const p = document.getElementById('prop-panel');
+            const content = document.getElementById('props-content');
+            content.innerHTML = '';
+
+            p.style.transform = 'translateX(0)';
+
+            // Common props
+            content.appendChild(createPropInput('X Position', item.x, v => { item.x = parseInt(v); Canvas2D.render(); }));
+            content.appendChild(createPropInput('Y Position', item.y, v => { item.y = parseInt(v); Canvas2D.render(); }));
+            // content.appendChild(createPropInput('Rotation', item.rotation, v => { item.rotation = parseFloat(v); Canvas2D.render(); }));
+
+            if (item.type === 'text') {
+                content.appendChild(createPropText('Content', item.text, v => {
+                    item.text = v;
+                    // Recalc width
+                    const ctx = Canvas2D.ctxOut; // dummy
+                    ctx.font = `${item.bold ? 'bold ' : ''}${item.fontSize}px ${item.fontFamily}`;
+                    item.width = ctx.measureText(v).width;
+                    Canvas2D.render();
+                }));
+                content.appendChild(createPropInput('Font Size', item.fontSize, v => {
+                    item.fontSize = parseInt(v);
+                    item.height = parseInt(v); // approx
+                    Canvas2D.render();
+                }));
+                content.appendChild(createPropColor('Color', item.color, v => { item.color = v; Canvas2D.render(); }));
+            } else if (item.type === 'rect') {
+                content.appendChild(createPropInput('Width', item.width, v => { item.width = parseInt(v); Canvas2D.render(); }));
+                content.appendChild(createPropInput('Height', item.height, v => { item.height = parseInt(v); Canvas2D.render(); }));
+                content.appendChild(createPropColor('Color', item.color, v => { item.color = v; Canvas2D.render(); }));
+            }
+        }
+
+        function createPropInput(label, val, onChange) {
+            const div = document.createElement('div');
+            div.className = 'control-group';
+            div.innerHTML = `<label>${label}</label><input type="number" value="${val}">`;
+            div.querySelector('input').oninput = (e) => onChange(e.target.value);
+            return div;
+        }
+
+        function createPropText(label, val, onChange) {
+            const div = document.createElement('div');
+            div.className = 'control-group';
+            div.innerHTML = `<label>${label}</label><input type="text" value="${val}">`;
+            div.querySelector('input').oninput = (e) => onChange(e.target.value);
+            return div;
+        }
+
+        function createPropColor(label, val, onChange) {
+            const div = document.createElement('div');
+            div.className = 'control-group';
+            div.innerHTML = `<label>${label}</label><input type="color" value="${val}" style="width:100%; height:30px;">`;
+            div.querySelector('input').oninput = (e) => onChange(e.target.value);
+            return div;
+        }
+
+        document.getElementById('btn-close-props').onclick = () => {
+            document.getElementById('prop-panel').style.transform = 'translateX(110%)';
+            STATE.selectedElement = null;
+            Canvas2D.render();
+            if (STATE.viewMode === 'orbit') controls.enabled = true;
+        };
+
+        document.getElementById('btn-delete-element').onclick = () => {
+            if (!STATE.selectedElement) return;
+            STATE.layers.outside = STATE.layers.outside.filter(i => i !== STATE.selectedElement);
+            STATE.layers.inside = STATE.layers.inside.filter(i => i !== STATE.selectedElement);
+            STATE.selectedElement = null;
+            Canvas2D.render();
+            document.getElementById('btn-close-props').click();
+        };
+
+
+        // --- File / Catalog Logic ---
+        const catalog = document.getElementById('asset-catalog');
+
+        document.getElementById('btn-link-folder').onclick = async () => {
+            try {
+                const dirHandle = await window.showDirectoryPicker();
+                catalog.innerHTML = '';
+                for await (const entry of dirHandle.values()) {
+                    if (entry.kind === 'file' && entry.name.match(/\.(jpg|jpeg|png|webp)$/i)) {
+                        const file = await entry.getFile();
+                        createAssetItem(file);
+                    }
+                }
+            } catch (e) {
+                console.warn("FS API not supported or cancelled", e);
+                alert("Folder access requires a secure context (HTTPS) or Chrome PWA. For now, dragging files individually works too!");
+            }
+        };
+
+        function createAssetItem(file) {
+            const url = URL.createObjectURL(file);
+            const div = document.createElement('div');
+            div.className = 'asset-item';
+            div.innerHTML = `<img src="${url}">`;
+            div.draggable = true;
+
+            // Store blob for export
+            const reader = new FileReader();
+            reader.onload = (e) => div.dataset.b64 = e.target.result;
+            reader.readAsDataURL(file);
+
+            div.ondragstart = (e) => {
+                e.dataTransfer.setData('text/plain', 'asset');
+                STATE.draggedImageSrc = url;
+                STATE.draggedImageB64 = div.dataset.b64;
+            };
+
+            catalog.appendChild(div);
+        }
+
+        // Drop on Canvas
+        window.addEventListener('dragover', e => e.preventDefault());
+        window.addEventListener('drop', (e) => {
+            e.preventDefault();
+
+            // This is a global drop, we need to Raycast to see where it lands OR if view is locked, just place.
+            if (STATE.draggedImageSrc && STATE.viewMode !== 'orbit') {
+                const isInside = STATE.viewMode.includes('inside');
+                const list = isInside ? STATE.layers.inside : STATE.layers.outside;
+
+                const img = new Image();
+                img.src = STATE.draggedImageSrc;
+                img.onload = () => {
+                    // Calculate drop pos relative to canvas
+                    // Simple assumption: Center of screen / view for now if precise raycasting of drag event is hard without dragover monitoring
+                    let x = isInside ? (STATE.viewMode === 'inside-right' ? Canvas2D.width * 0.75 : Canvas2D.width * 0.25)
+                        : (STATE.viewMode === 'front' ? Canvas2D.width * 0.75 : Canvas2D.width * 0.25);
+
+                    const ratio = img.width / img.height;
+                    const h = 400;
+                    const w = h * ratio;
+
+                    list.push({
+                        id: Date.now(),
+                        type: 'image',
+                        imgElement: img,
+                        src: STATE.draggedImageB64 || STATE.draggedImageSrc,
+                        x: x, y: Canvas2D.height / 2,
+                        width: w, height: h,
+                        rotation: 0
+                    });
+                    Canvas2D.render();
+                };
+            }
+        });
+
+        // Import Scanned Card
+        document.getElementById('btn-import-scan').onclick = () => {
+            // Step 1: Front
+            // Step 2: Back
+            alert("Please select the image for the FRONT/BACK (Outside) of the paper.");
+            document.getElementById('file-input-scan-front').click();
+        };
+
+        document.getElementById('file-input-scan-front').onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                const img = new Image();
+                img.onload = () => {
+                    STATE.layers.outside = [{
+                        id: 'scan-out', type: 'image', imgElement: img,
+                        src: evt.target.result, // Persist data
+                        x: Canvas2D.width / 2, y: Canvas2D.height / 2,
+                        width: Canvas2D.width, height: Canvas2D.height
+                    }];
+                    Canvas2D.render();
+
+                    e.target.value = ''; // Reset for re-use
+
+                    // Chain next
+                    // Browser Security: Cannot open file picker from async callback without user gesture.
+                    // Show a transient "Next Step" button to capture a new user click.
+                    const nextBtn = document.createElement('button');
+                    nextBtn.innerText = "Click to Upload INSIDE Image (Step 2/2)";
+                    nextBtn.style.cssText = "position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:9999; padding:20px; font-size:1.2rem; cursor:pointer; background:var(--accent-color); color:white; border:none; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.5);";
+
+                    document.body.appendChild(nextBtn);
+
+                    nextBtn.onclick = () => {
+                        document.body.removeChild(nextBtn);
+                        document.getElementById('file-input-scan-back').click();
+                    };
+                };
+                img.onerror = () => alert("Failed to load Front image.");
+                img.src = evt.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        document.getElementById('file-input-scan-back').onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                const img = new Image();
+                img.onload = () => {
+                    STATE.layers.inside = [{
+                        id: 'scan-in', type: 'image', imgElement: img,
+                        src: evt.target.result, // Persist data
+                        x: Canvas2D.width / 2, y: Canvas2D.height / 2,
+                        width: Canvas2D.width, height: Canvas2D.height
+                    }];
+                    Canvas2D.render();
+                    e.target.value = ''; // Reset
+                };
+                img.onerror = () => alert("Failed to load Inside image.");
+                img.src = evt.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+
+        // --- Export / Persistence Logic ---
+        // Helper to rebuild layers with images
+        async function hydrateLayers(layers) {
+            const hydrated = [];
+            for (let l of layers) {
+                const item = { ...l };
+                if (item.type === 'image' && item.src) {
+                    await new Promise((resolve) => {
+                        const img = new Image();
+                        img.onload = () => resolve();
+                        img.onerror = () => resolve();
+                        img.src = item.src;
+                        item.imgElement = img;
+                    });
+                }
+                hydrated.push(item);
+            }
+            return hydrated;
+        }
+
+        document.getElementById('btn-save-project').onclick = () => {
+            const name = prompt("Enter project name:", "My Card");
+            if (!name) return;
+
+            const data = {
+                version: 1,
+                date: Date.now(),
+                outside: STATE.layers.outside.map(l => ({ ...l, imgElement: null })),
+                inside: STATE.layers.inside.map(l => ({ ...l, imgElement: null }))
+            };
+
+            try {
+                localStorage.setItem(`card_proj_${name}`, JSON.stringify(data));
+                alert(`Project "${name}" saved to Browser Storage!`);
+            } catch (e) {
+                alert("Save failed (Storage Full?): " + e.message);
+            }
+        };
+
+        const btnNew = document.getElementById('btn-new-card');
+        btnNew.onclick = () => {
+            const isEmpty = STATE.layers.outside.length === 0 && STATE.layers.inside.length === 0;
+            if (!isEmpty && !confirm("Start new card? Unsaved changes will be lost.")) return;
+
+            STATE.layers.outside = [];
+            STATE.layers.inside = [];
+            STATE.selectedElement = null;
+            Canvas2D.render();
+        };
+
+        const btnCatalog = document.getElementById('btn-load-project');
+        btnCatalog.innerText = "Catalog";
+
+        btnCatalog.onclick = () => {
+            // Create UI Overlay
+            const overlay = document.createElement('div');
+            overlay.style.cssText = "position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); z-index:10000; display:flex; flex-direction:column; padding:40px; color:white; font-family:sans-serif;";
+
+            const header = document.createElement('div');
+            header.innerHTML = "<h2>Saved Cards Catalog</h2><p>Select a card to load:</p>";
+            overlay.appendChild(header);
+
+
+
+            const grid = document.createElement('div');
+            grid.style.cssText = "display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:20px; overflow-y:auto; padding:20px 0;";
+            overlay.appendChild(grid);
+
+            // Find Projects
+            const keys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key.startsWith('card_proj_')) keys.push(key);
+            }
+
+            if (keys.length === 0) {
+                grid.innerHTML = "<div>No saved projects found. Save one first!</div>";
+            }
+
+            keys.forEach(key => {
+                const projName = key.replace('card_proj_', '');
+                const raw = localStorage.getItem(key);
+                let meta = {};
+                try { meta = JSON.parse(raw); } catch (e) { }
+
+                const cardir = document.createElement('div');
+                cardir.style.cssText = "background:#333; border:1px solid #555; border-radius:8px; padding:15px; cursor:pointer; transition:0.2s;";
+                cardir.innerHTML = `
+                    <div style="font-weight:bold; font-size:1.1rem; margin-bottom:5px;">${projName}</div>
+                    <div style="font-size:0.8rem; color:#aaa;">${new Date(meta.date || 0).toLocaleDateString()}</div>
+                `;
+                cardir.onmouseover = () => cardir.style.background = '#444';
+                cardir.onmouseout = () => cardir.style.background = '#333';
+
+                cardir.onclick = async () => {
+                    const isEmpty = STATE.layers.outside.length === 0 && STATE.layers.inside.length === 0;
+                    if (!isEmpty && !confirm(`Load "${projName}"? Unsaved changes will be lost.`)) return;
+
+                    try {
+                        const data = JSON.parse(localStorage.getItem(key));
+                        // Rebuild state
+                        STATE.layers.outside = await hydrateLayers(data.outside || []);
+                        STATE.layers.inside = await hydrateLayers(data.inside || []);
+
+                        STATE.selectedElement = null;
+                        Canvas2D.render();
+                        document.body.removeChild(overlay);
+                    } catch (e) {
+                        alert("Failed to load project: " + e.message);
+                    }
+                };
+
+                // Delete Button
+                const delBtn = document.createElement('button');
+                delBtn.innerText = "×";
+                delBtn.style.cssText = "float:right; background:transparent; border:none; color:#f55; font-size:1.4rem; cursor:pointer; margin-top:-5px;";
+                delBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (confirm(`Delete "${projName}"?`)) {
+                        localStorage.removeItem(key);
+                        cardir.remove();
+                    }
+                };
+                cardir.insertBefore(delBtn, cardir.firstChild);
+
+                grid.appendChild(cardir);
+            });
+
+            const closeBtn = document.createElement('button');
+            closeBtn.innerText = "Close Catalog";
+            closeBtn.className = 'primary';
+            closeBtn.style.cssText = "margin-top:auto; align-self:center; padding:10px 30px;";
+            closeBtn.onclick = () => document.body.removeChild(overlay);
+            overlay.appendChild(closeBtn);
+
+            document.body.appendChild(overlay);
+        };
+
+        document.getElementById('btn-export-html').onclick = () => {
+            // Generate Texture Data URIs
+            const dataOut = canvasOutside.toDataURL('image/jpeg', 0.8);
+            const dataIn = canvasInside.toDataURL('image/jpeg', 0.8);
+
+            // Minimal Viewer HTML
+            const html = `<!DOCTYPE html>
+<html>
+<head>
+    <title>You've received a card!</title>
+    <style>body{margin:0;overflow:hidden;background:#222;}</style>
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"><\/script>
+    <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js"}}<\/script>
+</head>
+<body>
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x222222);
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
+    camera.position.set(0, 5, 12);
+    const renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dl = new THREE.DirectionalLight(0xffffff, 0.8); dl.position.set(5,10,7); scene.add(dl);
+
+    // Geometry
+    const w=5.5, h=8.5;
+    const gBase = new THREE.PlaneGeometry(w, h); // Base geometry
+    const THICKNESS = 0.01;
+    const OFFSET = w/2;
+
+    // Materials
+    const texOut = new THREE.TextureLoader().load('${dataOut}');
+    const texIn = new THREE.TextureLoader().load('${dataIn}');
+    texOut.colorSpace = THREE.SRGBColorSpace;
+    texIn.colorSpace = THREE.SRGBColorSpace;
+    
+    const matOut = new THREE.MeshBasicMaterial({map:texOut, side:THREE.FrontSide});
+    const matIn = new THREE.MeshBasicMaterial({map:texIn, side:THREE.FrontSide});
+
+    const leftGroup = new THREE.Group();
+    const rightGroup = new THREE.Group();
+    // Front wing (Left) sits on top of Back wing (Right)
+    leftGroup.position.z = THICKNESS * 2; 
+
+    scene.add(leftGroup); scene.add(rightGroup);
+    
+    // Helper
+    function setUVs(geo, min, max) {
+        const uvs = geo.attributes.uv;
+        for(let i=0; i<uvs.count; i++){
+            let u = uvs.getX(i);
+            u = min + u * (max - min);
+            uvs.setX(i, u);
+        }
+    }
+
+    // Left Wing (Front Cover + Inside Left)
+    const lIn = new THREE.Mesh(gBase.clone(), matIn); 
+    lIn.position.set(-OFFSET, 0, THICKNESS);
+    setUVs(lIn.geometry, 0, 0.5); // Inside Left
+    leftGroup.add(lIn);
+    
+    const lOut = new THREE.Mesh(gBase.clone(), matOut); 
+    lOut.position.set(-OFFSET, 0, -THICKNESS);
+    lOut.rotation.y = Math.PI; 
+    setUVs(lOut.geometry, 0.5, 1.0); // Fixed Front
+    leftGroup.add(lOut);
+
+    // Right Wing (Back Cover + Inside Right)
+    const rIn = new THREE.Mesh(gBase.clone(), matIn); 
+    rIn.position.set(OFFSET, 0, THICKNESS);
+    setUVs(rIn.geometry, 0.5, 1.0);
+    rightGroup.add(rIn);
+    
+    const rOut = new THREE.Mesh(gBase.clone(), matOut); 
+    rOut.position.set(OFFSET, 0, -THICKNESS);
+    rOut.rotation.y = Math.PI; 
+    setUVs(rOut.geometry, 0.0, 0.5); // Fixed Back
+    rightGroup.add(rOut);
+    
+    // Interaction State
+    const CLOSED_ANGLE = Math.PI * 0.9; // 90% Closed
+    const OPEN_ANGLE = Math.PI * 0.1;   // 90% Open
+    let targetAngle = CLOSED_ANGLE; 
+    leftGroup.rotation.y = CLOSED_ANGLE;
+
+    let isDragging = false;
+    document.addEventListener('mousedown', () => isDragging = false);
+    document.addEventListener('mousemove', () => isDragging = true);
+    document.addEventListener('mouseup', () => {
+        if (!isDragging) {
+             targetAngle = (targetAngle === CLOSED_ANGLE) ? OPEN_ANGLE : CLOSED_ANGLE;
+        }
+    });
+
+    function animate() {
+        requestAnimationFrame(animate);
+        // Smooth Lerp
+        leftGroup.rotation.y += (targetAngle - leftGroup.rotation.y) * 0.05;
+        controls.update();
+        renderer.render(scene, camera);
+    }
+    animate();
+<\/script>
+</body>
+</html>`;
+
+            const blob = new Blob([html], { type: 'text/html' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'greeting_card.html';
+            a.click();
+        };
+
+        // --- Render Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            // Fix for initial load race condition or context loss
+            // We force update textures if they haven't been rendered yet
+            if (renderer.info.render.frame % 30 === 0) {
+                texOutside.needsUpdate = true;
+                texInside.needsUpdate = true;
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Initial State
+        // Add timeout to ensure fonts/images are ready
+        setTimeout(() => {
+            updateFold(0.5);
+            Canvas2D.render();
+        }, 500);
+
+    </script>
+</body>
+
+</html>
