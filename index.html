@@ -15,8 +15,13 @@
     <script type="importmap">
       {
         "imports": {
-          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+          "three": "https://esm.sh/three@0.160.0",
+          "three/addons/": "https://esm.sh/three@0.160.0/examples/jsm/",
+          "@aws-amplify/core": "https://esm.sh/@aws-amplify/core@6.0.12",
+          "aws-amplify": "https://esm.sh/aws-amplify@6.0.12?deps=@aws-amplify/core@6.0.12",
+          "aws-amplify/auth": "https://esm.sh/aws-amplify@6.0.12/auth?deps=@aws-amplify/core@6.0.12",
+          "aws-amplify/storage": "https://esm.sh/aws-amplify@6.0.12/storage?deps=@aws-amplify/core@6.0.12",
+          "aws-amplify/utils": "https://esm.sh/aws-amplify@6.0.12/utils?deps=@aws-amplify/core@6.0.12"
         }
       }
     </script>
@@ -281,6 +286,12 @@
         <div class="panel">
             <h2>Card Creator</h2>
 
+            <div id="auth-section"
+                style="margin-bottom: 20px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                <div id="auth-status" style="font-size: 0.85rem; margin-bottom: 8px;">Checking status...</div>
+                <button id="btn-login-toggle" style="width: 100%; margin: 0;">Sign In</button>
+            </div>
+
             <div class="control-group">
                 <h3>Content Tools</h3>
                 <button id="btn-add-text">Add Text</button>
@@ -299,12 +310,24 @@
                 </div>
             </div>
 
+            <div class="control-group" style="margin-top: 10px;">
+                <h3>My Cloud Gallery</h3>
+                <div id="cloud-gallery"
+                    style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px;">
+                    <!-- Cloud files will appear here -->
+                    <div style="font-size: 0.8rem; color: #888; text-align: center; padding: 10px;">Loading
+                        gallery...</div>
+                </div>
+            </div>
+
             <div class="control-group">
                 <h3>Project</h3>
                 <button id="btn-new-card" style="margin-bottom: 5px;">+ New Card</button>
                 <button id="btn-save-project">Save Project</button>
                 <button id="btn-load-project">Load Project</button>
                 <button id="btn-export-html" class="primary">Export to HTML</button>
+                <button id="btn-publish-cloud" class="primary" style="background: #e91e63;">☁️ Publish to
+                    Cloud</button>
             </div>
         </div>
 
@@ -339,6 +362,7 @@
             <button id="btn-close-props" style="margin-top: 10px;">Close</button>
         </div>
     </div>
+    </div>
 
     <div id="loading-overlay">
         <h2>Loading...</h2>
@@ -365,8 +389,42 @@
     </script>
 
     <script type="module">
+        import awsconfig from './aws-exports.js';
+        import { Amplify } from 'aws-amplify';
+        import { uploadData, list, remove, getUrl } from 'aws-amplify/storage';
+        import { getCurrentUser, fetchAuthSession, signIn, signUp, confirmSignUp, autoSignIn, signOut } from 'aws-amplify/auth';
+        import { Hub } from 'aws-amplify/utils';
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        console.log("Configuring Amplify with (flat):", awsconfig);
+
+        try {
+            Amplify.configure({
+                Auth: {
+                    Cognito: {
+                        userPoolId: awsconfig.aws_user_pools_id,
+                        userPoolClientId: awsconfig.aws_user_pools_web_client_id,
+                        identityPoolId: awsconfig.aws_cognito_identity_pool_id,
+                        allowGuestAccess: true,
+                        // Explicitly set the region for credential verification
+                        region: awsconfig.aws_cognito_region,
+                        loginWith: {
+                            email: true
+                        }
+                    }
+                },
+                Storage: {
+                    S3: {
+                        bucket: awsconfig.aws_user_files_s3_bucket,
+                        region: awsconfig.aws_user_files_s3_bucket_region
+                    }
+                }
+            });
+            console.log("Amplify v6 configuration successful");
+        } catch (e) {
+            console.error("Amplify configuration failed:", e);
+        }
 
         // Hide loader
         document.getElementById('loading-overlay').classList.add('hidden');
@@ -1401,6 +1459,366 @@
             a.click();
         };
 
+        // --- Auth UI Management ---
+        const authContainer = document.getElementById('amplify-auth-container');
+        const authStatus = document.getElementById('auth-status');
+        const loginBtn = document.getElementById('btn-login-toggle');
+        const closeAuthBtn = document.getElementById('btn-close-auth');
+
+        const authTitle = document.getElementById('auth-title');
+        const authToggleBtn = document.getElementById('auth-toggle-btn');
+        const authToggleText = document.getElementById('auth-toggle-text');
+        const authSubmitBtn = document.getElementById('btn-auth-submit');
+        const authMsg = document.getElementById('auth-message');
+
+        const fieldUser = document.getElementById('auth-username');
+        const fieldEmail = document.getElementById('auth-email');
+        const fieldPass = document.getElementById('auth-password');
+        const fieldCode = document.getElementById('auth-code');
+
+        let authMode = 'signin'; // signin, signup, confirm
+
+        async function updateAuthUI() {
+            try {
+                const user = await getCurrentUser();
+                authStatus.innerHTML = `Signed in as:<br><strong>${user.username}</strong>`;
+                loginBtn.innerText = "Sign Out";
+                loadGallery();
+            } catch (e) {
+                authStatus.innerText = "Guest Mode";
+                loginBtn.innerText = "Sign In to Cloud";
+                document.getElementById('cloud-gallery').innerHTML = '<div style="font-size: 0.8rem; color: #888; text-align: center; padding: 10px;">Sign in to view cloud cards.</div>';
+            }
+        }
+
+        authToggleBtn.onclick = () => {
+            authMsg.innerText = '';
+            if (authMode === 'signin') {
+                authMode = 'signup';
+                authTitle.innerText = 'Create Account';
+                authSubmitBtn.innerText = 'Create Account';
+                authToggleText.innerText = 'Have an account?';
+                authToggleBtn.innerText = 'Sign In';
+                fieldUser.placeholder = 'Email';
+                fieldCode.classList.add('hidden');
+                fieldPass.classList.remove('hidden');
+            } else {
+                authMode = 'signin';
+                authTitle.innerText = 'Sign In';
+                authSubmitBtn.innerText = 'Sign In';
+                authToggleText.innerText = 'Need an account?';
+                authToggleBtn.innerText = 'Create Account';
+                fieldUser.placeholder = 'Email';
+                fieldCode.classList.add('hidden');
+                fieldPass.classList.remove('hidden');
+            }
+        };
+
+        authSubmitBtn.onclick = async () => {
+            const username = fieldUser.value; // Now contains the Email
+            const password = fieldPass.value;
+            const code = fieldCode.value;
+
+            authMsg.innerText = '';
+            authSubmitBtn.disabled = true;
+            const originalText = authSubmitBtn.innerText;
+            authSubmitBtn.innerText = 'Please wait...';
+
+            try {
+                if (authMode === 'signin') {
+                    const { nextStep } = await signIn({ username, password });
+
+                    if (nextStep.signInStep === 'CONFIRM_SIGN_UP') {
+                        authMode = 'confirm';
+                        authTitle.innerText = 'Confirm Account';
+                        authSubmitBtn.innerText = 'Confirm';
+                        fieldCode.classList.remove('hidden');
+                        fieldPass.classList.add('hidden');
+                    } else {
+                        authContainer.classList.add('hidden');
+                        updateAuthUI();
+                    }
+                } else if (authMode === 'signup') {
+                    await signUp({
+                        username,
+                        password,
+                        options: {
+                            userAttributes: { email: username }
+                        }
+                    });
+                    authMode = 'confirm';
+                    authTitle.innerText = 'Confirm Account';
+                    authSubmitBtn.innerText = 'Confirm';
+                    fieldCode.classList.remove('hidden');
+                    fieldPass.classList.add('hidden');
+                    authMsg.style.color = 'var(--accent-color)';
+                    authMsg.innerText = 'Code sent to ' + username;
+                } else if (authMode === 'confirm') {
+                    await confirmSignUp({ username, confirmationCode: code });
+                    await autoSignIn();
+                    authContainer.classList.add('hidden');
+                    updateAuthUI();
+                }
+            } catch (err) {
+                console.error("Auth error:", err);
+                authMsg.style.color = '#ff6b6b';
+                authMsg.innerText = err.message || "An error occurred";
+            } finally {
+                authSubmitBtn.disabled = false;
+                authSubmitBtn.innerText = originalText;
+            }
+        };
+
+        loginBtn.onclick = async () => {
+            if (loginBtn.innerText === "Sign Out") {
+                await signOut();
+                updateAuthUI();
+            } else {
+                authContainer.classList.remove('hidden');
+            }
+        };
+
+        closeAuthBtn.onclick = () => authContainer.classList.add('hidden');
+
+        // Close auth modal when signed in
+        Hub.listen('auth', ({ payload }) => {
+            if (payload.event === 'signedIn') {
+                authContainer.classList.add('hidden');
+            }
+            updateAuthUI();
+        });
+
+        // Initialize UI
+        updateAuthUI();
+
+        // --- Cloud Gallery & Publishing Logic ---
+        async function loadGallery() {
+            const galleryEl = document.getElementById('cloud-gallery');
+            galleryEl.innerHTML = '<div style="font-size: 0.8rem; color: #888; text-align: center; padding: 10px;">Loading gallery...</div>';
+
+            try {
+                const session = await fetchAuthSession();
+                if (!session.tokens) {
+                    galleryEl.innerHTML = '<div style="font-size: 0.8rem; color: #888; text-align: center; padding: 10px;">Please sign in to view gallery.</div>';
+                    return;
+                }
+                const identityId = session.identityId;
+                const bucket = awsconfig.aws_user_files_s3_bucket;
+
+                const result = await list({
+                    options: { accessLevel: 'protected' }
+                });
+
+                galleryEl.innerHTML = '';
+                if (result.items.length === 0) {
+                    galleryEl.innerHTML = '<div style="font-size: 0.8rem; color: #888; text-align: center; padding: 10px;">No cards found.</div>';
+                    return;
+                }
+
+                result.items.forEach(item => {
+                    const itemEl = document.createElement('div');
+                    itemEl.style.cssText = "display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px; font-size: 0.85rem;";
+
+                    const nameEl = document.createElement('span');
+                    nameEl.innerText = item.key;
+                    nameEl.style.cssText = "cursor: pointer; color: var(--accent-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1;";
+                    nameEl.onclick = async () => {
+                        try {
+                            const link = await getUrl({ key: item.key, options: { accessLevel: 'protected' } });
+                            window.open(link.url, '_blank');
+                        } catch (err) {
+                            console.error("Error getting URL:", err);
+                            alert("Could not open card: " + err.message);
+                        }
+                    };
+
+                    const delBtn = document.createElement('span');
+                    delBtn.innerHTML = '🗑️';
+                    delBtn.style.cssText = "cursor: pointer; margin-left: 10px; opacity: 0.7;";
+                    delBtn.onclick = async (e) => {
+                        e.stopPropagation();
+                        if (confirm(`Delete ${item.key}?`)) {
+                            await remove({ key: item.key, options: { accessLevel: 'protected' } });
+                            loadGallery();
+                        }
+                    };
+
+                    itemEl.appendChild(nameEl);
+                    itemEl.appendChild(delBtn);
+                    galleryEl.appendChild(itemEl);
+                });
+            } catch (error) {
+                console.error("Error loading gallery:", error);
+                galleryEl.innerHTML = '<div style="font-size: 0.8rem; color: #f55; text-align: center; padding: 10px;">Error loading gallery.</div>';
+            }
+        }
+
+        // Initialize gallery and listen for auth changes
+        loadGallery();
+
+        Hub.listen('auth', ({ payload }) => {
+            switch (payload.event) {
+                case 'signedIn':
+                    console.log('User signed in, loading gallery...');
+                    loadGallery();
+                    break;
+                case 'signedOut':
+                    document.getElementById('cloud-gallery').innerHTML = '<div style="font-size: 0.8rem; color: #888; text-align: center; padding: 10px;">Please sign in to view gallery.</div>';
+                    break;
+            }
+        });
+
+        async function generateHTMLString() {
+            // Re-use logic from btn-export-html but return string instead of downloading
+            const dataOut = canvasOutside.toDataURL('image/jpeg', 0.8);
+            const dataIn = canvasInside.toDataURL('image/jpeg', 0.8);
+
+            return `<!DOCTYPE html>
+<html>
+<head>
+    <title>You've received a card!</title>
+    <style>body{margin:0;overflow:hidden;background:#222;}</style>
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"><\/script>
+    <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js"}}<\/script>
+</head>
+<body>
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x222222);
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
+    camera.position.set(0, 5, 12);
+    const renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dl = new THREE.DirectionalLight(0xffffff, 0.8); dl.position.set(5,10,7); scene.add(dl);
+
+    // Geometry
+    const w=5.5, h=8.5;
+    const gBase = new THREE.PlaneGeometry(w, h); // Base geometry
+    const THICKNESS = 0.01;
+    const OFFSET = w/2;
+
+    // Materials
+    const texOut = new THREE.TextureLoader().load('${dataOut}');
+    const texIn = new THREE.TextureLoader().load('${dataIn}');
+    texOut.colorSpace = THREE.SRGBColorSpace;
+    texIn.colorSpace = THREE.SRGBColorSpace;
+    
+    const matOut = new THREE.MeshBasicMaterial({map:texOut, side:THREE.FrontSide});
+    const matIn = new THREE.MeshBasicMaterial({map:texIn, side:THREE.FrontSide});
+
+    const leftGroup = new THREE.Group();
+    const rightGroup = new THREE.Group();
+    // Front wing (Left) sits on top of Back wing (Right)
+    leftGroup.position.z = THICKNESS * 2; 
+
+    scene.add(leftGroup); scene.add(rightGroup);
+    
+    // Helper
+    function setUVs(geo, min, max) {
+        const uvs = geo.attributes.uv;
+        for(let i=0; i<uvs.count; i++){
+            let u = uvs.getX(i);
+            u = min + u * (max - min);
+            uvs.setX(i, u);
+        }
+    }
+
+    // Left Wing (Front Cover + Inside Left)
+    const lIn = new THREE.Mesh(gBase.clone(), matIn); 
+    lIn.position.set(-OFFSET, 0, THICKNESS);
+    setUVs(lIn.geometry, 0, 0.5); // Inside Left
+    leftGroup.add(lIn);
+    
+    const lOut = new THREE.Mesh(gBase.clone(), matOut); 
+    lOut.position.set(-OFFSET, 0, -THICKNESS);
+    lOut.rotation.y = Math.PI; 
+    setUVs(lOut.geometry, 0.5, 1.0); // Fixed Front
+    leftGroup.add(lOut);
+
+    // Right Wing (Back Cover + Inside Right)
+    const rIn = new THREE.Mesh(gBase.clone(), matIn); 
+    rIn.position.set(OFFSET, 0, THICKNESS);
+    setUVs(rIn.geometry, 0.5, 1.0);
+    rightGroup.add(rIn);
+    
+    const rOut = new THREE.Mesh(gBase.clone(), matOut); 
+    rOut.position.set(OFFSET, 0, -THICKNESS);
+    rOut.rotation.y = Math.PI; 
+    setUVs(rOut.geometry, 0.0, 0.5); // Fixed Back
+    rightGroup.add(rOut);
+    
+    // Interaction State
+    const CLOSED_ANGLE = Math.PI * 0.9; // 90% Closed
+    const OPEN_ANGLE = Math.PI * 0.1;   // 90% Open
+    let targetAngle = CLOSED_ANGLE; 
+    leftGroup.rotation.y = CLOSED_ANGLE;
+
+    let isDragging = false;
+    document.addEventListener('mousedown', () => isDragging = false);
+    document.addEventListener('mousemove', () => isDragging = true);
+    document.addEventListener('mouseup', () => {
+        if (!isDragging) {
+             targetAngle = (targetAngle === CLOSED_ANGLE) ? OPEN_ANGLE : CLOSED_ANGLE;
+        }
+    });
+
+    function animate() {
+        requestAnimationFrame(animate);
+        // Smooth Lerp
+        leftGroup.rotation.y += (targetAngle - leftGroup.rotation.y) * 0.05;
+        controls.update();
+        renderer.render(scene, camera);
+    }
+    animate();
+<\/script>
+</body>
+</html>`;
+        }
+
+        document.getElementById('btn-publish-cloud').onclick = async () => {
+            const btn = document.getElementById('btn-publish-cloud');
+            const originalText = btn.innerText;
+            btn.innerText = "⏳ Publishing...";
+            btn.disabled = true;
+
+            try {
+                // Force session refresh before upload to avoid unauthRole error
+                const session = await fetchAuthSession({ forceRefresh: true });
+                if (!session.tokens) {
+                    throw new Error("You must be signed in to publish to the cloud.");
+                }
+
+                const htmlString = await generateHTMLString();
+                const key = `card-${Date.now()}.html`;
+
+                await uploadData({
+                    key: key,
+                    data: htmlString,
+                    options: {
+                        accessLevel: 'protected',
+                        contentType: 'text/html'
+                    }
+                }).result;
+
+                alert("Card Published!");
+                loadGallery();
+            } catch (error) {
+                console.error("Publish error:", error);
+                alert("Failed to publish card: " + error.message);
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+        };
+
         // --- Render Loop ---
         function animate() {
             requestAnimationFrame(animate);
@@ -1423,8 +1841,39 @@
             updateFold(0.5);
             Canvas2D.render();
         }, 500);
-
     </script>
+    <div id="amplify-auth-container" class="hidden"
+        style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10000; background: var(--bg-color); padding: 40px; border-radius: 12px; border: 1px solid var(--panel-border); box-shadow: 0 10px 40px rgba(0,0,0,0.8); min-width: 350px;">
+        <button id="btn-close-auth"
+            style="position: absolute; right: 15px; top: 15px; background: transparent; border: none; font-size: 1.2rem; cursor: pointer; color: #fff;">×</button>
+
+        <div id="auth-form-wrapper">
+            <h2 id="auth-title" style="margin-bottom: 20px; font-size: 1.2rem; text-align: center;">Sign In</h2>
+
+            <div id="auth-inputs" style="display: flex; flex-direction: column; gap: 15px;">
+                <input type="email" id="auth-username" placeholder="Email"
+                    style="background: rgba(0,0,0,0.3); border: 1px solid var(--panel-border); color: white; padding: 10px; border-radius: 6px;">
+                <input type="password" id="auth-password" placeholder="Password"
+                    style="background: rgba(0,0,0,0.3); border: 1px solid var(--panel-border); color: white; padding: 10px; border-radius: 6px;">
+                <input type="text" id="auth-code" class="hidden" placeholder="Confirmation Code"
+                    style="background: rgba(0,0,0,0.3); border: 1px solid var(--panel-border); color: white; padding: 10px; border-radius: 6px;">
+            </div>
+
+            <button id="btn-auth-submit" class="primary" style="width: 100%; margin-top: 20px; padding: 12px;">Sign
+                In</button>
+
+            <div id="auth-toggle-wrapper"
+                style="margin-top: 15px; text-align: center; font-size: 0.85rem; color: var(--text-sec);">
+                <span id="auth-toggle-text">Need an account?</span>
+                <span id="auth-toggle-btn"
+                    style="color: var(--accent-color); cursor: pointer; margin-left: 5px; font-weight: 500;">Create
+                    Account</span>
+            </div>
+
+            <div id="auth-message" style="margin-top: 15px; font-size: 0.85rem; text-align: center; color: #ff6b6b;">
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>

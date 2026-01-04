@@ -1,0 +1,16 @@
+{
+  "resourceName": "users",
+  "policyUUID": "4523ed4e",
+  "bucketName": "cardmakerbc18c36441ad41a1aa873132c95cc9ce",
+  "storageAccess": "authAndGuest",
+  "guestAccess": [
+    "READ"
+  ],
+  "authAccess": [
+    "CREATE_AND_UPDATE",
+    "READ",
+    "DELETE"
+  ],
+  "triggerFunction": "NONE",
+  "groupAccess": {}
+}

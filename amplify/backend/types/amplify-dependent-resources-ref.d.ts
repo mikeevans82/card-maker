@@ -1,0 +1,19 @@
+export type AmplifyDependentResourcesAttributes = {
+  "auth": {
+    "cardmaker2b70d674": {
+      "AppClientID": "string",
+      "AppClientIDWeb": "string",
+      "IdentityPoolId": "string",
+      "IdentityPoolName": "string",
+      "UserPoolArn": "string",
+      "UserPoolId": "string",
+      "UserPoolName": "string"
+    }
+  },
+  "storage": {
+    "users": {
+      "BucketName": "string",
+      "Region": "string"
+    }
+  }
+}

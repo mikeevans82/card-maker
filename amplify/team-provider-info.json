@@ -1,0 +1,23 @@
+{
+  "dev": {
+    "awscloudformation": {
+      "AuthRoleName": "amplify-cardmaker-dev-70880-authRole",
+      "UnauthRoleArn": "arn:aws:iam::812490741363:role/amplify-cardmaker-dev-70880-unauthRole",
+      "AuthRoleArn": "arn:aws:iam::812490741363:role/amplify-cardmaker-dev-70880-authRole",
+      "Region": "us-east-1",
+      "DeploymentBucketName": "amplify-cardmaker-dev-70880-deployment",
+      "UnauthRoleName": "amplify-cardmaker-dev-70880-unauthRole",
+      "StackName": "amplify-cardmaker-dev-70880",
+      "StackId": "arn:aws:cloudformation:us-east-1:812490741363:stack/amplify-cardmaker-dev-70880/7c64aa10-e7ee-11f0-bf0c-0affe4395775",
+      "AmplifyAppId": "dhu97kf17yqvy"
+    },
+    "categories": {
+      "auth": {
+        "cardmaker2b70d674": {}
+      },
+      "storage": {
+        "users": {}
+      }
+    }
+  }
+}
