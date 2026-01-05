@@ -286,11 +286,7 @@
         <div class="panel">
             <h2>Card Creator</h2>
 
-            <div id="auth-section"
-                style="margin-bottom: 20px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px;">
-                <div id="auth-status" style="font-size: 0.85rem; margin-bottom: 8px;">Checking status...</div>
-                <button id="btn-login-toggle" style="width: 100%; margin: 0;">Sign In</button>
-            </div>
+
 
             <div class="control-group">
                 <h3>Content Tools</h3>
@@ -304,11 +300,22 @@
 
 
             <div class="control-group">
-                <h3>Project</h3>
+                <h3>Cards</h3>
                 <button id="btn-new-card" style="margin-bottom: 5px;">+ New Card</button>
                 <button id="btn-save-project">Save Card</button>
                 <button id="btn-load-project">Load Card</button>
                 <button id="btn-export-html" class="primary">Download Card</button>
+            </div>
+
+            <div class="control-group">
+                <h3>Cloud Tools</h3>
+                <!-- Auth Status -->
+                <div
+                    style="margin-bottom: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">
+                    <div id="auth-status" style="font-size: 0.8rem; margin-bottom: 5px; color: #ccc;">Checking...</div>
+                    <button id="btn-login-toggle" style="width: 100%; font-size: 0.8rem; padding: 5px;">Sign In</button>
+                </div>
+
                 <button id="btn-shared-cards" class="primary">Shared Cards</button>
                 <button id="btn-publish-cloud" class="primary" style="background: #e91e63;">☁️ Publish to
                     Cloud</button>
