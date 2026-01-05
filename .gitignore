@@ -19,3 +19,8 @@ amplifytools.xcconfig
 .secret-*
 **.sample
 #amplify-do-not-edit-end
+
+# Local/Build Files
+build.zip
+*.code-workspace
+.vscode/

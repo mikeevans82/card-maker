@@ -299,33 +299,17 @@
                 <button id="btn-import-scan">Import Scanned Card</button>
             </div>
 
-            <div class="control-group" style="flex-grow: 1; overflow: hidden; display: flex; flex-direction: column;">
-                <h3>Assets Catalog</h3>
-                <button id="btn-link-folder">📂 Link Local Folder</button>
-                <div id="asset-catalog" class="asset-grid">
-                    <!-- Assets will appear here -->
-                </div>
-                <div style="font-size: 0.75rem; color: #666; margin-top: 5px; text-align: center;">
-                    Drag images onto card
-                </div>
-            </div>
 
-            <div class="control-group" style="margin-top: 10px;">
-                <h3>My Cloud Gallery</h3>
-                <div id="cloud-gallery"
-                    style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px;">
-                    <!-- Cloud files will appear here -->
-                    <div style="font-size: 0.8rem; color: #888; text-align: center; padding: 10px;">Loading
-                        gallery...</div>
-                </div>
-            </div>
+
+
 
             <div class="control-group">
                 <h3>Project</h3>
                 <button id="btn-new-card" style="margin-bottom: 5px;">+ New Card</button>
-                <button id="btn-save-project">Save Project</button>
-                <button id="btn-load-project">Load Project</button>
-                <button id="btn-export-html" class="primary">Export to HTML</button>
+                <button id="btn-save-project">Save Card</button>
+                <button id="btn-load-project">Load Card</button>
+                <button id="btn-export-html" class="primary">Download Card</button>
+                <button id="btn-shared-cards" class="primary">Shared Cards</button>
                 <button id="btn-publish-cloud" class="primary" style="background: #e91e63;">☁️ Publish to
                     Cloud</button>
             </div>
@@ -1055,45 +1039,7 @@
         };
 
 
-        // --- File / Catalog Logic ---
-        const catalog = document.getElementById('asset-catalog');
 
-        document.getElementById('btn-link-folder').onclick = async () => {
-            try {
-                const dirHandle = await window.showDirectoryPicker();
-                catalog.innerHTML = '';
-                for await (const entry of dirHandle.values()) {
-                    if (entry.kind === 'file' && entry.name.match(/\.(jpg|jpeg|png|webp)$/i)) {
-                        const file = await entry.getFile();
-                        createAssetItem(file);
-                    }
-                }
-            } catch (e) {
-                console.warn("FS API not supported or cancelled", e);
-                alert("Folder access requires a secure context (HTTPS) or Chrome PWA. For now, dragging files individually works too!");
-            }
-        };
-
-        function createAssetItem(file) {
-            const url = URL.createObjectURL(file);
-            const div = document.createElement('div');
-            div.className = 'asset-item';
-            div.innerHTML = `<img src="${url}">`;
-            div.draggable = true;
-
-            // Store blob for export
-            const reader = new FileReader();
-            reader.onload = (e) => div.dataset.b64 = e.target.result;
-            reader.readAsDataURL(file);
-
-            div.ondragstart = (e) => {
-                e.dataTransfer.setData('text/plain', 'asset');
-                STATE.draggedImageSrc = url;
-                STATE.draggedImageB64 = div.dataset.b64;
-            };
-
-            catalog.appendChild(div);
-        }
 
         // Drop on Canvas
         window.addEventListener('dragover', e => e.preventDefault());
@@ -1220,7 +1166,7 @@
         }
 
         document.getElementById('btn-save-project').onclick = () => {
-            const name = prompt("Enter project name:", "My Card");
+            const name = prompt("Enter a name for the card:\n(Note: Cards are saved to this browser's memory)", "My Card");
             if (!name) return;
 
             const data = {
@@ -1250,7 +1196,7 @@
         };
 
         const btnCatalog = document.getElementById('btn-load-project');
-        btnCatalog.innerText = "Catalog";
+        btnCatalog.innerText = "Load Card";
 
         btnCatalog.onclick = () => {
             // Create UI Overlay
@@ -1338,6 +1284,7 @@
         };
 
         document.getElementById('btn-export-html').onclick = () => {
+            if (!confirm("This will download the card as a standalone HTML file which can be opened in any web browser.\n\nDo you want to continue?")) return;
             // Generate Texture Data URIs
             const dataOut = canvasOutside.toDataURL('image/jpeg', 0.8);
             const dataIn = canvasInside.toDataURL('image/jpeg', 0.8);
@@ -1483,11 +1430,11 @@
                 const user = await getCurrentUser();
                 authStatus.innerHTML = `Signed in as:<br><strong>${user.username}</strong>`;
                 loginBtn.innerText = "Sign Out";
-                loadGallery();
+
             } catch (e) {
                 authStatus.innerText = "Guest Mode";
                 loginBtn.innerText = "Sign In to Cloud";
-                document.getElementById('cloud-gallery').innerHTML = '<div style="font-size: 0.8rem; color: #888; text-align: center; padding: 10px;">Sign in to view cloud cards.</div>';
+                loginBtn.innerText = "Sign In to Cloud";
             }
         }
 
@@ -1592,78 +1539,102 @@
         updateAuthUI();
 
         // --- Cloud Gallery & Publishing Logic ---
-        async function loadGallery() {
-            const galleryEl = document.getElementById('cloud-gallery');
-            galleryEl.innerHTML = '<div style="font-size: 0.8rem; color: #888; text-align: center; padding: 10px;">Loading gallery...</div>';
+        document.getElementById('btn-shared-cards').onclick = openSharedCardsModal;
+
+        async function openSharedCardsModal() {
+            // Create UI Overlay (Similar to Load Card)
+            const overlay = document.createElement('div');
+            overlay.style.cssText = "position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); z-index:10000; display:flex; flex-direction:column; padding:40px; color:white; font-family:sans-serif;";
+
+            const header = document.createElement('div');
+            header.innerHTML = "<h2>Shared Cards</h2><p>Click link to view card, or Trash to delete.</p>";
+            overlay.appendChild(header);
+
+            const grid = document.createElement('div');
+            grid.style.cssText = "display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap:10px; overflow-y:auto; padding:20px 0;";
+            overlay.appendChild(grid);
+
+            // Loading state
+            grid.innerHTML = '<div style="color:#aaa;">Loading cloud files...</div>';
+            document.body.appendChild(overlay);
+
+            // Close button helper
+            const addCloseBtn = () => {
+                const closeBtn = document.createElement('button');
+                closeBtn.innerText = "Close";
+                closeBtn.className = 'primary';
+                closeBtn.style.cssText = "margin-top:auto; align-self:center; padding:10px 30px;";
+                closeBtn.onclick = () => document.body.removeChild(overlay);
+                overlay.appendChild(closeBtn);
+            };
 
             try {
                 const session = await fetchAuthSession();
                 if (!session.tokens) {
-                    galleryEl.innerHTML = '<div style="font-size: 0.8rem; color: #888; text-align: center; padding: 10px;">Please sign in to view gallery.</div>';
+                    grid.innerHTML = '<div style="color:#f55;">Please sign in to view shared cards.</div>';
+                    addCloseBtn();
                     return;
                 }
-                const identityId = session.identityId;
+
                 const bucket = awsconfig.aws_user_files_s3_bucket;
+                const region = awsconfig.aws_user_files_s3_bucket_region;
 
                 const result = await list({
-                    options: { accessLevel: 'protected' }
+                    options: { accessLevel: 'guest' }
                 });
 
-                galleryEl.innerHTML = '';
+                grid.innerHTML = '';
                 if (result.items.length === 0) {
-                    galleryEl.innerHTML = '<div style="font-size: 0.8rem; color: #888; text-align: center; padding: 10px;">No cards found.</div>';
-                    return;
+                    grid.innerHTML = '<div style="color:#aaa;">No cards found. Publish one first!</div>';
                 }
 
                 result.items.forEach(item => {
                     const itemEl = document.createElement('div');
-                    itemEl.style.cssText = "display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px; font-size: 0.85rem;";
+                    itemEl.style.cssText = "display: flex; justify-content: space-between; align-items: center; background: #333; padding: 15px; border-radius: 8px; border: 1px solid #555; font-size: 1rem;";
 
                     const nameEl = document.createElement('span');
                     nameEl.innerText = item.key;
-                    nameEl.style.cssText = "cursor: pointer; color: var(--accent-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1;";
-                    nameEl.onclick = async () => {
-                        try {
-                            const link = await getUrl({ key: item.key, options: { accessLevel: 'protected' } });
-                            window.open(link.url, '_blank');
-                        } catch (err) {
-                            console.error("Error getting URL:", err);
-                            alert("Could not open card: " + err.message);
-                        }
+                    nameEl.style.cssText = "cursor: pointer; color: var(--accent-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1; font-weight:bold;";
+                    nameEl.onclick = () => {
+                        const url = `https://${bucket}.s3.${region}.amazonaws.com/public/${item.key}`;
+                        window.open(url, '_blank');
                     };
 
-                    const delBtn = document.createElement('span');
-                    delBtn.innerHTML = '🗑️';
-                    delBtn.style.cssText = "cursor: pointer; margin-left: 10px; opacity: 0.7;";
+                    const delBtn = document.createElement('button');
+                    delBtn.innerText = '🗑️';
+                    delBtn.style.cssText = "cursor: pointer; margin-left: 10px; background: transparent; border: none; font-size: 1.2rem;";
                     delBtn.onclick = async (e) => {
                         e.stopPropagation();
                         if (confirm(`Delete ${item.key}?`)) {
-                            await remove({ key: item.key, options: { accessLevel: 'protected' } });
-                            loadGallery();
+                            delBtn.innerText = "⏳";
+                            try {
+                                await remove({ key: item.key, options: { accessLevel: 'guest' } });
+                                itemEl.remove();
+                            } catch (err) {
+                                alert("Failed to delete: " + err.message);
+                                delBtn.innerText = '🗑️';
+                            }
                         }
                     };
 
                     itemEl.appendChild(nameEl);
                     itemEl.appendChild(delBtn);
-                    galleryEl.appendChild(itemEl);
+                    grid.appendChild(itemEl);
                 });
+
             } catch (error) {
                 console.error("Error loading gallery:", error);
-                galleryEl.innerHTML = '<div style="font-size: 0.8rem; color: #f55; text-align: center; padding: 10px;">Error loading gallery.</div>';
+                grid.innerHTML = '<div style="color:#f55;">Error loading shared cards.</div>';
             }
+            addCloseBtn();
         }
-
-        // Initialize gallery and listen for auth changes
-        loadGallery();
 
         Hub.listen('auth', ({ payload }) => {
             switch (payload.event) {
                 case 'signedIn':
-                    console.log('User signed in, loading gallery...');
-                    loadGallery();
+                    console.log('User signed in');
                     break;
                 case 'signedOut':
-                    document.getElementById('cloud-gallery').innerHTML = '<div style="font-size: 0.8rem; color: #888; text-align: center; padding: 10px;">Please sign in to view gallery.</div>';
                     break;
             }
         });
@@ -1803,13 +1774,12 @@
                     key: key,
                     data: htmlString,
                     options: {
-                        accessLevel: 'protected',
+                        accessLevel: 'guest',
                         contentType: 'text/html'
                     }
                 }).result;
 
                 alert("Card Published!");
-                loadGallery();
             } catch (error) {
                 console.error("Publish error:", error);
                 alert("Failed to publish card: " + error.message);
