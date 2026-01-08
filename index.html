@@ -291,7 +291,10 @@
             <div class="control-group">
                 <h3>Content Tools</h3>
                 <button id="btn-add-text">Add Text</button>
-                <button id="btn-add-rect">Add Rectangle</button>
+                <div style="display:flex; gap:5px;">
+                    <button id="btn-add-shape" style="flex:1;">Add Shapes</button>
+                    <button id="btn-add-sticker" style="flex:1;">Add Stickers</button>
+                </div>
                 <button id="btn-import-scan">Import Scanned Card</button>
             </div>
 
@@ -456,7 +459,7 @@
 
         // Camera
         const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-        camera.position.set(0, 10, 15);
+        camera.position.set(0, 10, getSafeZ());
 
         const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('three-canvas'), antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -687,9 +690,64 @@
                     if (layer.imgElement) {
                         ctx.drawImage(layer.imgElement, -layer.width / 2, -layer.height / 2, layer.width, layer.height);
                     }
-                } else if (layer.type === 'rect') {
+
+                } else if (layer.type === 'shape') {
                     ctx.fillStyle = layer.color;
-                    ctx.fillRect(-layer.width / 2, -layer.height / 2, layer.width, layer.height);
+                    ctx.beginPath();
+                    const w = layer.width;
+                    const h = layer.height;
+                    const hw = w / 2;
+                    const hh = h / 2;
+
+                    if (layer.subtype === 'rect') {
+                        ctx.fillRect(-hw, -hh, w, h);
+                    } else if (layer.subtype === 'circle') {
+                        ctx.ellipse(0, 0, Math.abs(hw), Math.abs(hh), 0, 0, Math.PI * 2);
+                        ctx.fill();
+                    } else if (layer.subtype === 'triangle') {
+                        ctx.moveTo(0, -hh);
+                        ctx.lineTo(hw, hh);
+                        ctx.lineTo(-hw, hh);
+                        ctx.closePath();
+                        ctx.fill();
+                    } else if (layer.subtype === 'star') {
+                        // 5-point star
+                        const outer = Math.min(w, h) / 2;
+                        const inner = outer * 0.4;
+                        for (let i = 0; i < 10; i++) {
+                            const r = (i % 2 === 0) ? outer : inner;
+                            const a = Math.PI / 2 + i * Math.PI / 5; // Start top
+                            const sx = Math.cos(a) * r; // rotated -90deg?
+                            // Fix rotation to point up:
+                            // i=0 is outer top.
+                            const ang = -Math.PI / 2 + i * (Math.PI / 5);
+                            const x = Math.cos(ang) * r;
+                            const y = Math.sin(ang) * r;
+                            if (i === 0) ctx.moveTo(x, y);
+                            else ctx.lineTo(x, y);
+                        }
+                        ctx.closePath();
+                        ctx.fill();
+                    } else if (layer.subtype === 'heart') {
+                        const topCurveHeight = h * 0.3;
+                        ctx.moveTo(0, -hh + topCurveHeight);
+                        // Top left curve
+                        ctx.bezierCurveTo(
+                            -w / 2, -hh,
+                            -w, -hh + topCurveHeight,
+                            0, hh
+                        );
+                        // Top right curve
+                        ctx.bezierCurveTo(
+                            w, -hh + topCurveHeight,
+                            w / 2, -hh,
+                            0, -hh + topCurveHeight
+                        );
+                        ctx.fill();
+                    } else {
+                        // Fallback rect
+                        ctx.fillRect(-hw, -hh, w, h);
+                    }
                 }
 
                 ctx.restore();
@@ -798,6 +856,40 @@
         window.addEventListener('pointermove', onPointerMove);
         window.addEventListener('pointerdown', onPointerDown);
         window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('resize', onWindowResize);
+
+        function onWindowResize() {
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+
+            const safeZ = getSafeZ();
+            const sign = (camera.position.z >= 0) ? 1 : -1;
+
+            if (STATE.viewMode === 'orbit') {
+                camera.position.z = safeZ * sign;
+            } else {
+                const targetPos = camera.position.clone();
+                targetPos.z = safeZ * sign;
+                animateCamera(targetPos, controls.target.clone());
+            }
+        }
+
+        function getSafeZ() {
+            const aspect = window.innerWidth / window.innerHeight;
+            const vFov = camera.fov * (Math.PI / 180);
+
+            // Height fit: Card is 8.5 high. Let's provide some padding (10).
+            // Width fit: Card is 11 wide (open). Let's provide padding (13).
+
+            const heightFit = 5.0 / Math.tan(vFov / 2);
+            const widthFit = 6.5 / (Math.tan(vFov / 2) * aspect);
+
+            return Math.max(15, heightFit, widthFit);
+        }
 
         // --- View Modes ---
         // viewPositions is defined above in the geometry section
@@ -811,13 +903,17 @@
 
         function setMode(mode) {
             STATE.viewMode = mode;
-            document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
-            document.querySelector(`.view-btn[data-view="${mode}"]`).classList.add('active');
+            document.querySelectorAll('.view-btn').forEach(b => {
+                if (b.dataset.view) b.classList.remove('active');
+            });
+            const activeBtn = document.querySelector(`.view-btn[data-view="${mode}"]`);
+            if (activeBtn) activeBtn.classList.add('active');
 
             if (mode === 'orbit') {
                 controls.enabled = true;
                 // Tween camera back to default
-                animateCamera(new THREE.Vector3(0, 10, 15), new THREE.Vector3(0, 0, 0));
+                const safeZ = getSafeZ();
+                animateCamera(new THREE.Vector3(0, 10, safeZ), new THREE.Vector3(0, 0, 0));
                 return;
             }
 
@@ -825,28 +921,22 @@
 
             // Auto-open/close card based on view
             if (mode === 'front') {
-                // Close card to see front flat
-                // Front panel is Right Wing Outside. 
-                // If closed (0), Right folds over. We see Front.
-                // Wait, if closed, Front is on top.
                 gsapLikeFold(0);
-                // Pos
-                const t = viewPositions['front'];
-                animateCamera(t.pos, t.look);
             } else if (mode === 'back') {
-                // Close card also? 
-                // Back panel is Left Wing Outside.
-                gsapLikeFold(0); // If closed, we can see back.
-                // But if closed, the Right Wing covers the Left Wing (Inside).
-                // The Back Panel is the "Back Cover".
-                // Camera needs to be behind card.
-                const t = viewPositions['back'];
-                animateCamera(t.pos, t.look);
+                gsapLikeFold(0);
             } else {
-                // Inside views: Open card flat
                 gsapLikeFold(1);
-                const t = viewPositions[mode];
-                animateCamera(t.pos, t.look);
+            }
+
+            const t = viewPositions[mode];
+            if (t) {
+                const safeZ = getSafeZ();
+                const targetPos = t.pos.clone();
+                // Preserve sign
+                const sign = targetPos.z >= 0 ? 1 : -1;
+                targetPos.z = safeZ * sign;
+
+                animateCamera(targetPos, t.look);
             }
         }
 
@@ -968,7 +1058,198 @@
                 showProperties(newItem);
             }, 100);
         }
-        document.getElementById('btn-add-rect').onclick = addRect;
+        // document.getElementById('btn-add-rect').onclick = addRect; // Removed
+
+        // --- Shape UI ---
+        document.getElementById('btn-add-shape').onclick = () => {
+            const modal = document.getElementById('modal-shapes');
+            modal.classList.remove('hidden');
+        };
+        document.getElementById('btn-close-shapes').onclick = () => {
+            document.getElementById('modal-shapes').classList.add('hidden');
+        };
+
+        document.querySelectorAll('.shape-opt').forEach(btn => {
+            btn.onclick = () => {
+                const subtype = btn.dataset.shape;
+                addShape(subtype);
+                document.getElementById('modal-shapes').classList.add('hidden');
+            };
+        });
+
+        function addShape(subtype) {
+            if (STATE.viewMode === 'orbit') setMode('front');
+            setTimeout(() => {
+                const isInside = STATE.viewMode.includes('inside');
+                const list = isInside ? STATE.layers.inside : STATE.layers.outside;
+                const x = isInside ? (STATE.viewMode === 'inside-right' ? Canvas2D.width * 0.75 : Canvas2D.width * 0.25)
+                    : (STATE.viewMode === 'front' ? Canvas2D.width * 0.75 : Canvas2D.width * 0.25);
+
+                let w = 200, h = 200;
+                let color = '#ff0000';
+                if (subtype === 'star') color = '#ffd700';
+                if (subtype === 'heart') color = '#ff69b4';
+                if (subtype === 'triangle') { w = 200; h = 174; }
+
+                const newItem = {
+                    id: Date.now(),
+                    type: 'shape',
+                    subtype: subtype,
+                    x: x,
+                    y: Canvas2D.height / 2,
+                    width: w,
+                    height: h,
+                    rotation: 0,
+                    color: color
+                };
+
+                list.push(newItem);
+                STATE.selectedElement = newItem;
+                Canvas2D.render();
+                showProperties(newItem);
+            }, 100);
+        }
+
+
+        // --- Sticker UI ---
+        document.getElementById('btn-add-sticker').onclick = () => {
+            document.getElementById('modal-stickers').classList.remove('hidden');
+        };
+        document.getElementById('btn-close-stickers').onclick = () => {
+            document.getElementById('modal-stickers').classList.add('hidden');
+        };
+
+        // Tabs
+        const tabGeneral = document.getElementById('tab-general');
+        const tabUpload = document.getElementById('tab-upload');
+        const contentGeneral = document.getElementById('sticker-content-general');
+        const contentUpload = document.getElementById('sticker-content-upload');
+
+        tabGeneral.onclick = () => {
+            tabGeneral.classList.add('active'); tabUpload.classList.remove('active');
+            contentGeneral.classList.remove('hidden'); contentUpload.classList.add('hidden');
+        };
+        tabUpload.onclick = () => {
+            tabUpload.classList.add('active'); tabGeneral.classList.remove('active');
+            contentUpload.classList.remove('hidden'); contentGeneral.classList.add('hidden');
+        };
+
+        // Sticker Upload Logic
+        document.getElementById('sticker-upload-input').onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                addStickerImage(evt.target.result);
+                document.getElementById('modal-stickers').classList.add('hidden');
+            };
+            reader.readAsDataURL(file);
+        };
+
+        function addStickerImage(src) {
+            // Do NOT change view mode. 
+            // If in orbit, we default to placing on Front Cover (Outside Right).
+            const img = new Image();
+            img.onload = () => {
+                // Logic to scale down if too big
+                const MAX_SIZE = 500; // 500px is roughly 1/4 of card width 2048
+                let w = img.width;
+                let h = img.height;
+
+                if (w > MAX_SIZE || h > MAX_SIZE) {
+                    const ratio = w / h;
+                    if (w > h) {
+                        w = MAX_SIZE;
+                        h = w / ratio;
+                    } else {
+                        h = MAX_SIZE;
+                        w = h * ratio;
+                    }
+                }
+
+                const vm = STATE.viewMode || 'front';
+                const isInside = vm.includes('inside');
+                const list = isInside ? STATE.layers.inside : STATE.layers.outside;
+
+                // Center in view based on the CURRENT vm
+                let xPct = 0.75; // Default to Right side (Front / Inside Right)
+
+                if (vm === 'back' || vm === 'inside-left') {
+                    xPct = 0.25; // Left side
+                }
+
+                const x = Canvas2D.width * xPct;
+
+                list.push({
+                    id: Date.now(),
+                    type: 'image',
+                    imgElement: img,
+                    src: src, // Base64 or URL
+                    x: x, y: Canvas2D.height / 2,
+                    width: w, height: h,
+                    rotation: 0
+                });
+                Canvas2D.render();
+            };
+            img.src = src;
+        }
+
+        // populate general stickers
+        const generalGrid = document.getElementById('sticker-content-general');
+        const sheetUrl = 'src/assets/stickers/stickers_1.png';
+
+        // Approximate coordinates for the 10 stickers in the generated sheet (1:2 aspect ratio)
+        // Adjust these based on the actual generated image layout.
+        // Assuming a 2-row layout or similar based on generation prompt.
+        // For a robust system, we would use individual files. 
+        // Here we slice the sheet on the fly to Data URIs.
+
+        const STICKER_COORDS = [
+            { name: 'Cat', x: 29, y: 253, w: 214, h: 231 },
+            { name: 'Unicorn', x: 240, y: 240, w: 190, h: 247 },
+            { name: 'Cake', x: 429, y: 240, w: 182, h: 231 },
+            { name: 'Heart', x: 629, y: 282, w: 186, h: 180 },
+            { name: 'Star', x: 820, y: 284, w: 188, h: 185 },
+
+            { name: 'Rainbow', x: 20, y: 546, w: 214, h: 210 },
+            { name: 'Flower', x: 263, y: 538, w: 157, h: 240 },
+            { name: 'Cupcake', x: 432, y: 546, w: 189, h: 218 },
+            { name: 'Smiley', x: 628, y: 556, w: 175, h: 193 },
+            { name: 'Paw', x: 825, y: 565, w: 179, h: 180 },
+        ];
+
+        const sheetImg = new Image();
+        sheetImg.crossOrigin = "Anonymous";
+        sheetImg.onload = () => {
+            STICKER_COORDS.forEach(coord => {
+                // Slice
+                const c = document.createElement('canvas');
+                c.width = coord.w;
+                c.height = coord.h;
+                const bx = c.getContext('2d');
+                bx.drawImage(sheetImg, coord.x, coord.y, coord.w, coord.h, 0, 0, coord.w, coord.h);
+                const dataUrl = c.toDataURL(); // extract sticker
+
+                // UI Item
+                const wrapper = document.createElement('div');
+                wrapper.className = 'asset-item';
+                wrapper.style.cssText = "background: rgba(255,255,255,0.1); cursor: pointer; padding: 5px; border-radius: 4px; display: flex; align-items: center; justify-content: center;";
+
+                const thumb = document.createElement('img');
+                thumb.src = dataUrl;
+                thumb.style.cssText = "max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: none;";
+
+                wrapper.onclick = () => {
+                    addStickerImage(dataUrl);
+                    document.getElementById('modal-stickers').classList.add('hidden');
+                };
+
+                wrapper.appendChild(thumb);
+                generalGrid.appendChild(wrapper);
+            });
+        };
+        sheetImg.src = sheetUrl;
 
         // --- Properties Panel ---
         function showProperties(item) {
@@ -998,7 +1279,8 @@
                     Canvas2D.render();
                 }));
                 content.appendChild(createPropColor('Color', item.color, v => { item.color = v; Canvas2D.render(); }));
-            } else if (item.type === 'rect') {
+                content.appendChild(createPropColor('Color', item.color, v => { item.color = v; Canvas2D.render(); }));
+            } else if (item.type === 'shape') {
                 content.appendChild(createPropInput('Width', item.width, v => { item.width = parseInt(v); Canvas2D.render(); }));
                 content.appendChild(createPropInput('Height', item.height, v => { item.height = parseInt(v); Canvas2D.render(); }));
                 content.appendChild(createPropColor('Color', item.color, v => { item.color = v; Canvas2D.render(); }));
@@ -1301,7 +1583,12 @@
 <html>
 <head>
     <title>You've received a card!</title>
-    <style>body{margin:0;overflow:hidden;background:#222;}</style>
+    <style>
+        body{margin:0;overflow:hidden;background:#222;}
+        .controls { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100; display: flex; gap: 10px; }
+        .controls button { background: rgba(0,0,0,0.6); color: white; border: 1px solid rgba(255,255,255,0.4); padding: 8px 16px; border-radius: 20px; cursor: pointer; font-family: sans-serif; font-size: 14px; transition: background 0.2s; }
+        .controls button:hover { background: rgba(255,255,255,0.2); }
+    </style>
     <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"><\/script>
     <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js"}}<\/script>
 </head>
@@ -1313,12 +1600,32 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x222222);
     const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
-    camera.position.set(0, 5, 12);
+    
+    // Renderer
     const renderer = new THREE.WebGLRenderer({antialias:true});
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
+    
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
+
+    // Responsive Logic
+    function onWindowResize() {
+        const w = window.innerWidth, h = window.innerHeight;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+        
+        const aspect = w / h;
+        const vFov = camera.fov * (Math.PI / 180);
+        const fitH = 5.0 / Math.tan(vFov / 2); // 8.5 height + padding
+        const fitW = 6.5 / (Math.tan(vFov / 2) * aspect); // 11 width + padding
+        const safeZ = Math.max(12, fitH, fitW);
+        camera.position.z = safeZ;
+        camera.position.y = 5; // Look down slightly
+    }
+    window.addEventListener('resize', onWindowResize);
+    onWindowResize(); // Init position
     
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
     const dl = new THREE.DirectionalLight(0xffffff, 0.8); dl.position.set(5,10,7); scene.add(dl);
@@ -1402,7 +1709,41 @@
         renderer.render(scene, camera);
     }
     animate();
+
+    // UI Logic
+    document.getElementById('btn-open').onclick = () => targetAngle = OPEN_ANGLE;
+    document.getElementById('btn-close').onclick = () => targetAngle = CLOSED_ANGLE;
+    
+    document.getElementById('btn-front').onclick = () => {
+        // Reset orbit
+        controls.reset();
+        camera.position.set(0, 0, 15);
+        camera.lookAt(0,0,0);
+        onWindowResize(); // Recalc safe Z
+    };
+    
+    document.getElementById('btn-back').onclick = () => {
+        controls.reset();
+        camera.position.set(0, 0, -15);
+        camera.lookAt(0,0,0);
+        
+        // Recalc safe Z but negative
+        const w = window.innerWidth, h = window.innerHeight;
+        const aspect = w / h;
+        const vFov = camera.fov * (Math.PI / 180);
+        const fitH = 5.0 / Math.tan(vFov / 2);
+        const fitW = 6.5 / (Math.tan(vFov / 2) * aspect);
+        const safeZ = Math.max(12, fitH, fitW);
+        camera.position.z = -safeZ;
+    };
+
 <\/script>
+<div class="controls">
+    <button id="btn-open">Open</button>
+    <button id="btn-close">Close</button>
+    <button id="btn-front">Front</button>
+    <button id="btn-back">Back</button>
+</div>
 </body>
 </html>`;
 
@@ -1657,7 +1998,12 @@
 <html>
 <head>
     <title>You've received a card!</title>
-    <style>body{margin:0;overflow:hidden;background:#222;}</style>
+    <style>
+        body{margin:0;overflow:hidden;background:#222;}
+        .controls { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100; display: flex; gap: 10px; }
+        .controls button { background: rgba(0,0,0,0.6); color: white; border: 1px solid rgba(255,255,255,0.4); padding: 8px 16px; border-radius: 20px; cursor: pointer; font-family: sans-serif; font-size: 14px; transition: background 0.2s; }
+        .controls button:hover { background: rgba(255,255,255,0.2); }
+    </style>
     <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"><\/script>
     <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js"}}<\/script>
 </head>
@@ -1669,12 +2015,31 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x222222);
     const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
-    camera.position.set(0, 5, 12);
+    
     const renderer = new THREE.WebGLRenderer({antialias:true});
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
+    
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
+
+    // Responsive Logic
+    function onWindowResize() {
+        const w = window.innerWidth, h = window.innerHeight;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+        
+        const aspect = w / h;
+        const vFov = camera.fov * (Math.PI / 180);
+        const fitH = 5.0 / Math.tan(vFov / 2);
+        const fitW = 6.5 / (Math.tan(vFov / 2) * aspect);
+        const safeZ = Math.max(12, fitH, fitW);
+        camera.position.z = safeZ;
+        camera.position.y = 5;
+    }
+    window.addEventListener('resize', onWindowResize);
+    onWindowResize();
     
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
     const dl = new THREE.DirectionalLight(0xffffff, 0.8); dl.position.set(5,10,7); scene.add(dl);
@@ -1758,7 +2123,38 @@
         renderer.render(scene, camera);
     }
     animate();
+
+    // UI Logic
+    document.getElementById('btn-open').onclick = () => targetAngle = OPEN_ANGLE;
+    document.getElementById('btn-close').onclick = () => targetAngle = CLOSED_ANGLE;
+
+    document.getElementById('btn-front').onclick = () => {
+        controls.reset();
+        camera.position.set(0, 0, 15);
+        camera.lookAt(0,0,0);
+        onWindowResize(); 
+    };
+
+    document.getElementById('btn-back').onclick = () => {
+        controls.reset();
+        camera.position.set(0, 0, -15);
+        camera.lookAt(0,0,0);
+        // Recalc safe Z but negative
+        const w = window.innerWidth, h = window.innerHeight;
+        const aspect = w / h;
+        const vFov = camera.fov * (Math.PI / 180);
+        const fitH = 5.0 / Math.tan(vFov / 2);
+        const fitW = 6.5 / (Math.tan(vFov / 2) * aspect);
+        const safeZ = Math.max(12, fitH, fitW);
+        camera.position.z = -safeZ;
+    };
 <\/script>
+<div class="controls">
+    <button id="btn-open">Open</button>
+    <button id="btn-close">Close</button>
+    <button id="btn-front">Front</button>
+    <button id="btn-back">Back</button>
+</div>
 </body>
 </html>`;
         }
@@ -1851,6 +2247,51 @@
 
             <div id="auth-message" style="margin-top: 15px; font-size: 0.85rem; text-align: center; color: #ff6b6b;">
             </div>
+        </div>
+    </div>
+    <!-- Shape Modal -->
+    <div id="modal-shapes" class="hidden"
+        style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:5000; display:flex; align-items:center; justify-content:center;">
+        <div
+            style="background:var(--panel-bg); backdrop-filter:blur(20px); border:1px solid var(--panel-border); padding:20px; border-radius:12px; width:300px;">
+            <h3 style="margin-top:0;">Select Shape</h3>
+            <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-bottom:20px;">
+                <button class="shape-opt" data-shape="rect" style="height:60px; font-size:2rem;">⬛</button>
+                <button class="shape-opt" data-shape="circle" style="height:60px; font-size:2rem;">⚫</button>
+                <button class="shape-opt" data-shape="triangle" style="height:60px; font-size:2rem;">🔺</button>
+                <button class="shape-opt" data-shape="star" style="height:60px; font-size:2rem;">⭐</button>
+                <button class="shape-opt" data-shape="heart" style="height:60px; font-size:2rem;">❤️</button>
+            </div>
+            <button id="btn-close-shapes" style="width:100%;">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Sticker Modal -->
+    <div id="modal-stickers" class="hidden"
+        style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:5000; display:flex; align-items:center; justify-content:center;">
+        <div
+            style="background:var(--panel-bg); backdrop-filter:blur(20px); border:1px solid var(--panel-border); padding:20px; border-radius:12px; width:400px; height:500px; display:flex; flex-direction:column;">
+            <h3 style="margin-top:0;">Add Sticker</h3>
+
+            <div
+                style="display:flex; gap:10px; margin-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
+                <button id="tab-general" class="view-btn active" style="flex:1;">General</button>
+                <button id="tab-upload" class="view-btn" style="flex:1;">Upload</button>
+            </div>
+
+            <div id="sticker-content-general"
+                style="flex:1; overflow-y:auto; display:grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap:10px;">
+                <!-- Populated via JS -->
+            </div>
+
+            <div id="sticker-content-upload" class="hidden"
+                style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; color:#aaa;">
+                <p>Upload your own sticker image (PNG/JPG)</p>
+                <input type="file" id="sticker-upload-input" accept="image/*" style="display:block; margin-top:10px;">
+                <p style="font-size:0.8rem; margin-top:20px;">Images will be scaled down to fit the card.</p>
+            </div>
+
+            <button id="btn-close-stickers" style="margin-top:20px; width:100%;">Close</button>
         </div>
     </div>
 </body>
