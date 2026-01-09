@@ -2245,6 +2245,12 @@
             STATE.selectedElement = null;
             Canvas2D.render();
 
+            // Reset View
+            updateFold(0.2);
+            camera.position.set(2.75, 5, 15);
+            controls.target.set(2.75, 0, 0);
+            controls.update();
+
             // Simple toast
             const toast = document.createElement('div');
             toast.innerText = "New Card Started";
@@ -2311,6 +2317,11 @@
                         STATE.selectedElement = null;
                         Canvas2D.render();
                         setMode('orbit');
+                        updateFold(0.2); // Reset to 20% open
+                        camera.position.set(2.75, 5, 15);
+                        controls.target.set(2.75, 0, 0);
+                        controls.update();
+
                         document.body.removeChild(overlay);
                     } catch (e) {
                         alert("Failed to load project: " + e.message);
@@ -2675,6 +2686,80 @@
             return getRobustViewerHTML(dataOut, dataIn);
         }
 
+        function showPublishSuccessModal(url) {
+            const overlay = document.createElement('div');
+            overlay.style.cssText = "position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); z-index:10000; display:flex; align-items:center; justify-content:center; font-family:sans-serif;";
+
+            const box = document.createElement('div');
+            box.style.cssText = "background:var(--panel-bg); backdrop-filter:blur(10px); padding:30px; border-radius:16px; border:1px solid var(--panel-border); color:white; width:90%; max-width:400px; display:flex; flex-direction:column; gap:15px; box-shadow:0 20px 50px rgba(0,0,0,0.6); text-align:center;";
+
+            box.innerHTML = `
+                <div style="font-size:3rem; margin-bottom:-10px;">🎉</div>
+                <h3 style="margin:0; font-size:1.5rem; font-weight:700;">Card Published!</h3>
+                <p style="color:#ccc; margin:0; font-size:0.95rem;">Your 3D card is live and ready to share.</p>
+                
+                <div style="background:rgba(0,0,0,0.3); padding:12px; border-radius:8px; border:1px solid var(--panel-border); word-break:break-all; font-family:monospace; font-size:0.85rem; user-select:all; color:var(--accent-color);">
+                    ${url}
+                </div>
+
+                <div style="display:flex; flex-direction:column; gap:10px; margin-top:10px;">
+                    <button id="btn-copy-link" style="padding:12px; background:var(--accent-color); border:none; color:white; border-radius:10px; cursor:pointer; font-weight:bold; width:100%; font-size:1rem; transition: transform 0.1s;">
+                        📋 Copy Link
+                    </button>
+                    <button id="btn-share-native" style="padding:12px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:white; border-radius:10px; cursor:pointer; font-weight:bold; width:100%; font-size:1rem; display:none; transition: background 0.2s;">
+                        📣 Share Card
+                    </button>
+                </div>
+
+                <button id="btn-close-success" style="padding:10px; background:transparent; border:none; color:#888; cursor:pointer; margin-top:5px; font-size:0.9rem;">Close</button>
+            `;
+
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+
+            const btnCopy = box.querySelector('#btn-copy-link');
+            const btnShare = box.querySelector('#btn-share-native');
+            const btnClose = box.querySelector('#btn-close-success');
+
+            // Copy Logic
+            btnCopy.onclick = () => {
+                navigator.clipboard.writeText(url).then(() => {
+                    const original = btnCopy.innerHTML;
+                    btnCopy.innerHTML = "✅ Copied!";
+                    btnCopy.style.background = "#4cd964"; // Green success
+                    setTimeout(() => {
+                        btnCopy.innerHTML = original;
+                        btnCopy.style.background = "var(--accent-color)";
+                    }, 2000);
+                }).catch(err => {
+                    console.error('Failed to copy: ', err);
+                    prompt("Copy this link manually:", url);
+                });
+            };
+
+            // Share Logic
+            if (navigator.share) {
+                btnShare.style.display = 'block';
+                btnShare.onclick = () => {
+                    navigator.share({
+                        title: 'Greeting Card',
+                        text: 'I created a 3D greeting card for you!',
+                        url: url
+                    }).catch((e) => console.log('Share canceled/failed', e));
+                };
+            }
+
+            // Close logic
+            const close = () => {
+                overlay.style.opacity = '0';
+                setTimeout(() => document.body.removeChild(overlay), 200);
+            };
+            overlay.style.transition = 'opacity 0.2s';
+
+            btnClose.onclick = close;
+            overlay.onclick = (e) => { if (e.target === overlay) close(); };
+        }
+
         document.getElementById('btn-publish-cloud').onclick = async () => {
             const btn = document.getElementById('btn-publish-cloud');
             const originalText = btn.innerText;
@@ -2700,7 +2785,14 @@
                     }
                 }).result;
 
-                alert("Card Published!");
+                // alert("Card Published!");
+
+                const bucket = awsconfig.aws_user_files_s3_bucket;
+                const region = awsconfig.aws_user_files_s3_bucket_region;
+                const url = `https://${bucket}.s3.${region}.amazonaws.com/public/${key}`;
+
+                showPublishSuccessModal(url);
+
             } catch (error) {
                 console.error("Publish error:", error);
                 alert("Failed to publish card: " + error.message);
@@ -2735,8 +2827,16 @@
         // Initial State
         // Add timeout to ensure fonts/images are ready
         setTimeout(() => {
-            updateFold(0.5);
+            updateFold(0.2); // 20% Open
             Canvas2D.render();
+
+            // Initial Camera: Slightly higher than "Front" view
+            if (camera && controls) {
+                // Front view pos is z=15. We want slightly higher -> y positive.
+                camera.position.set(2.75, 5, 15);
+                controls.target.set(2.75, 0, 0);
+                controls.update();
+            }
         }, 500);
     </script>
     <div id="amplify-auth-container" class="hidden"
