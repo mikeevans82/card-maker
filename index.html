@@ -268,6 +268,148 @@
             accent-color: var(--accent-color);
         }
 
+        /* Mobile UI Buttons */
+        .mobile-toggle {
+            display: none;
+            /* Hidden on desktop */
+            position: absolute;
+            top: 20px;
+            z-index: 100;
+            background: var(--panel-bg);
+            backdrop-filter: blur(var(--glass-blur));
+            border: 1px solid var(--panel-border);
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            font-size: 1.2rem;
+            width: 44px;
+            height: 44px;
+            /* Touch target */
+            align-items: center;
+            justify-content: center;
+        }
+
+        #btn-toggle-left {
+            left: 20px;
+        }
+
+        #btn-toggle-right {
+            right: 20px;
+        }
+
+        /* Overlay for mobile drawer backdrop */
+        #mobile-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 150;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        #mobile-backdrop.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        @media (max-width: 768px) {
+            #app {
+                flex-direction: column;
+            }
+
+            /* Main Layout */
+            #viewport {
+                width: 100vw;
+                height: 100vh;
+                position: absolute;
+                top: 0;
+                left: 0;
+                z-index: 1;
+            }
+
+            /* Panels as Drawers */
+            .panel {
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                width: 85%;
+                max-width: 320px;
+                height: 100%;
+                left: 0;
+                transform: translateX(-110%);
+                /* Default Hidden */
+                z-index: 200;
+                border: none;
+                border-right: 1px solid var(--panel-border);
+                box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
+                overflow-y: auto;
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+
+            .panel-right {
+                left: auto;
+                right: 0;
+                transform: translateX(110%);
+                border-left: 1px solid var(--panel-border);
+                border-right: none;
+            }
+
+            .panel.open {
+                transform: translateX(0);
+            }
+
+            .panel-right.open {
+                transform: translateX(0);
+            }
+
+            /* View Controls */
+            .view-controls {
+                width: 90%;
+                flex-wrap: wrap;
+                justify-content: center;
+                bottom: 40px;
+                /* Higher up to avoid safe area */
+                padding: 10px;
+            }
+
+            .view-btn {
+                font-size: 0.8rem;
+                padding: 10px 14px;
+                flex-grow: 1;
+                text-align: center;
+            }
+
+            /* Mobile Toggles */
+            .mobile-toggle {
+                display: flex;
+            }
+
+            /* Adjust Text/Inputs for Touch */
+            button,
+            input,
+            select {
+                min-height: 44px;
+                /* Touch target */
+                font-size: 16px;
+                /* Stop iOS zoom */
+            }
+
+            h2 {
+                font-size: 1.2rem;
+            }
+
+            /* Hide Anim control on mobile? Takes up space. Let's position it lower. */
+            #anim-control {
+                top: 70px;
+            }
+        }
+
         .toolbar-icon {
             margin-right: 5px;
         }
@@ -289,6 +431,15 @@
 </head>
 
 <body>
+    <div id="loading-overlay">
+        <h2>Loading 3D Engine...</h2>
+        <div id="loading-msg" style="color:var(--text-sec); font-size:0.9rem;">Connecting to libraries...</div>
+    </div>
+
+    <!-- Mobile Toggles -->
+    <button id="btn-toggle-left" class="mobile-toggle">☰</button>
+    <button id="btn-toggle-right" class="mobile-toggle">⚙️</button>
+    <div id="mobile-backdrop"></div>
 
     <div id="app">
         <!-- Left Sidebar: Assets & Tools -->
@@ -363,10 +514,7 @@
     </div>
     </div>
 
-    <div id="loading-overlay">
-        <h2>Loading...</h2>
-        <p id="loading-msg" style="margin-top:10px; font-size: 0.9rem; color:#aaa;">Connecting to libraries...</p>
-    </div>
+
 
     <!-- Hidden inputs/canvases -->
     <input type="file" id="file-input-scan-front" accept="image/*">
@@ -426,7 +574,14 @@
         }
 
         // Hide loader
-        document.getElementById('loading-overlay').classList.add('hidden');
+        const loader = document.getElementById('loading-overlay');
+        if (loader) {
+            console.log("Hiding loader...");
+            loader.style.display = 'none';
+            loader.classList.add('hidden');
+        } else {
+            console.error("Loader NOT found!");
+        }
 
         // --- State Management ---
         const STATE = {
@@ -463,8 +618,12 @@
         scene.background = new THREE.Color(0x222222);
 
         // Camera
+        // Camera
         const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-        camera.position.set(0, 10, getSafeZ());
+
+
+
+        camera.position.set(0, 10, 15);
 
         const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('three-canvas'), antialias: true, alpha: true });
 
@@ -1420,6 +1579,16 @@
                 content.appendChild(createPropInput('Height', item.height, v => { item.height = parseInt(v); Canvas2D.render(); }));
                 content.appendChild(createPropColor('Color', item.color, v => { item.color = v; Canvas2D.render(); }));
             }
+
+            // Auto-open properties on selection if mobile
+            if (window.innerWidth <= 768 && item) {
+                const panelRight = document.querySelector('.panel-right');
+                const backdrop = document.getElementById('mobile-backdrop');
+                if (panelRight && backdrop) {
+                    panelRight.classList.add('open');
+                    backdrop.classList.add('active');
+                }
+            }
         }
 
         function createPropInput(label, val, onChange) {
@@ -1745,6 +1914,12 @@
             const fitW = (11.0 * PAD) / (Math.tan(vFov / 2) * aspect); 
             const sphereDist = (7.0 * PAD) / Math.sin(vFov / 2); 
 
+
+
+            // Mobile Z adjustment: Need to be further back generally? 
+            // The fit logic handles aspect ratio. 
+            // But let's ensure we don't clip.
+            
             const safeZ = Math.max(10, fitH, fitW, sphereDist) * 0.8;
             camera.position.z = Math.max(safeZ, 5); 
         }
@@ -2713,6 +2888,41 @@
                 grid.innerHTML = '<div style="color:#f55;">Error loading shared cards.</div>';
             }
             addCloseBtn();
+        }
+
+        // Mobile UI Logic
+        const btnToggleLeft = document.getElementById('btn-toggle-left');
+        const btnToggleRight = document.getElementById('btn-toggle-right');
+        const backdrop = document.getElementById('mobile-backdrop');
+        const panelLeft = document.querySelector('.panel');
+        const panelRight = document.querySelector('.panel-right');
+
+        function closeAllPanels() {
+            if (panelLeft) panelLeft.classList.remove('open');
+            if (panelRight) panelRight.classList.remove('open');
+            if (backdrop) backdrop.classList.remove('active');
+        }
+
+        if (btnToggleLeft && btnToggleRight && backdrop) {
+            btnToggleLeft.onclick = () => {
+                const isOpen = panelLeft.classList.contains('open');
+                closeAllPanels();
+                if (!isOpen) {
+                    panelLeft.classList.add('open');
+                    backdrop.classList.add('active');
+                }
+            };
+
+            btnToggleRight.onclick = () => {
+                const isOpen = panelRight.classList.contains('open');
+                closeAllPanels();
+                if (!isOpen) {
+                    panelRight.classList.add('open');
+                    backdrop.classList.add('active');
+                }
+            };
+
+            backdrop.onclick = closeAllPanels;
         }
 
         Hub.listen('auth', ({ payload }) => {
