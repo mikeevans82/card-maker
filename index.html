@@ -499,7 +499,8 @@
 
         // Global Error Handler for user feedback
         window.onerror = function (msg, url, line) {
-            alert("JS Error: " + msg + "\nLine: " + line);
+            console.error(msg);
+            showCustomAlert("System Error: " + msg, "Error");
         };
 
         // --- Card Geometry Setup ---
@@ -1511,11 +1512,23 @@
 
         // Import Scanned Card
         document.getElementById('btn-import-scan').onclick = () => {
-            // Step 1: Front
-            // Step 2: Back
-            alert("Please select the image for the FRONT/BACK (Outside) of the paper.");
-            document.getElementById('file-input-scan-front').click();
+            // Instructions
+            showCustomAlert(
+                "Make a 3D card from your home-made or store-bought card.\n\nCreate your design on **standard letter-size paper** (8.5 x 11 inches) or scan an existing card.\n\nPlease save your scans/photos as **JPG or PNG** files.",
+                "Import Instructions",
+                () => {
+                    // Step 1: Alert then Open File Picker
+                    showCustomAlert(
+                        "Step 1: Select the image for the FRONT/BACK (Outside) of the paper.",
+                        "Import - Step 1/2",
+                        () => {
+                            document.getElementById('file-input-scan-front').click();
+                        }
+                    );
+                }
+            );
         };
+
 
         document.getElementById('file-input-scan-front').onchange = (e) => {
             const file = e.target.files[0];
@@ -1535,21 +1548,16 @@
 
                     e.target.value = ''; // Reset for re-use
 
-                    // Chain next
-                    // Browser Security: Cannot open file picker from async callback without user gesture.
-                    // Show a transient "Next Step" button to capture a new user click.
-                    const nextBtn = document.createElement('button');
-                    nextBtn.innerText = "Click to Upload INSIDE Image (Step 2/2)";
-                    nextBtn.style.cssText = "position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:9999; padding:20px; font-size:1.2rem; cursor:pointer; background:var(--accent-color); color:white; border:none; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.5);";
-
-                    document.body.appendChild(nextBtn);
-
-                    nextBtn.onclick = () => {
-                        document.body.removeChild(nextBtn);
-                        document.getElementById('file-input-scan-back').click();
-                    };
+                    // Chain next step with consistent UI
+                    showCustomAlert(
+                        "Great! Now select the image for the INSIDE of the paper.",
+                        "Import - Step 2/2",
+                        () => {
+                            document.getElementById('file-input-scan-back').click();
+                        }
+                    );
                 };
-                img.onerror = () => alert("Failed to load Front image.");
+                img.onerror = () => showCustomAlert("Failed to load Front image.", "Error");
                 img.src = evt.target.result;
             };
             reader.readAsDataURL(file);
@@ -1572,7 +1580,7 @@
                     Canvas2D.render();
                     e.target.value = ''; // Reset
                 };
-                img.onerror = () => alert("Failed to load Inside image.");
+                img.onerror = () => showCustomAlert("Failed to load Inside image.", "Error");
                 img.src = evt.target.result;
             };
             reader.readAsDataURL(file);
@@ -1628,6 +1636,55 @@
                 dataOut: cOut.toDataURL('image/jpeg', 0.8),
                 dataIn: cIn.toDataURL('image/jpeg', 0.8)
             };
+        }
+
+        // --- Custom UI Helpers ---
+        function showToast(message, duration = 3000, color = 'var(--accent-color)') {
+            const toast = document.createElement('div');
+            toast.innerText = message;
+            toast.style.cssText = `position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:${color}; color:white; padding:10px 20px; border-radius:20px; font-family:sans-serif; z-index:10001; box-shadow:0 4px 12px rgba(0,0,0,0.5); font-weight:500; opacity:0; transition:opacity 0.3s;`;
+            document.body.appendChild(toast);
+
+            requestAnimationFrame(() => toast.style.opacity = '1');
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => document.body.removeChild(toast), 300);
+            }, duration);
+        }
+
+        function showCustomAlert(message, title = "Alert", onCloseCallback = null) {
+            const overlay = document.createElement('div');
+            overlay.style.cssText = "position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:20000; display:flex; align-items:center; justify-content:center; font-family:sans-serif;";
+
+            const box = document.createElement('div');
+            box.style.cssText = "background:var(--panel-bg); backdrop-filter:blur(10px); border:1px solid var(--panel-border); padding:20px; border-radius:12px; width:300px; box-shadow:0 10px 40px rgba(0,0,0,0.5); text-align:center;";
+
+            box.innerHTML = `
+                <h3 style="margin-top:0; color:white;">${title}</h3>
+                <p style="color:#ddd; font-size:0.95rem; margin-bottom:20px;">${message}</p>
+                <button id="btn-custom-alert-ok" style="background:var(--accent-color); border:none; color:white; padding:8px 20px; border-radius:6px; cursor:pointer;">OK</button>
+            `;
+
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+
+            // Animate
+            box.style.transform = "scale(0.9)";
+            box.style.transition = "transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)";
+            requestAnimationFrame(() => box.style.transform = "scale(1)");
+
+            const close = () => {
+                overlay.style.opacity = "0";
+                overlay.style.transition = "opacity 0.2s";
+                setTimeout(() => document.body.removeChild(overlay), 200);
+            };
+
+            box.querySelector('#btn-custom-alert-ok').onclick = () => {
+                close();
+                if (onCloseCallback) onCloseCallback();
+            };
+            box.querySelector('#btn-custom-alert-ok').focus();
         }
 
         function getRobustViewerHTML(dataOut, dataIn) {
@@ -2214,16 +2271,10 @@
 
                 try {
                     localStorage.setItem(`card_proj_${name}`, JSON.stringify(data));
-                    // Simple toast instead of alert
-                    const toast = document.createElement('div');
-                    toast.innerText = `Saved "${name}"`;
-                    toast.style.cssText = "position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--accent-color); color:white; padding:10px 20px; border-radius:20px; font-family:sans-serif; z-index:10001; box-shadow:0 4px 12px rgba(0,0,0,0.5);";
-                    document.body.appendChild(toast);
-                    setTimeout(() => document.body.removeChild(toast), 3000);
-
+                    showToast(`Saved "${name}"`);
                     close();
                 } catch (e) {
-                    alert("Save failed (Storage Full?): " + e.message);
+                    showCustomAlert("Save failed (Storage Full?): " + e.message, "Save Error");
                 }
             };
 
@@ -2252,11 +2303,7 @@
             controls.update();
 
             // Simple toast
-            const toast = document.createElement('div');
-            toast.innerText = "New Card Started";
-            toast.style.cssText = "position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--accent-color); color:white; padding:10px 20px; border-radius:20px; font-family:sans-serif; z-index:10001;";
-            document.body.appendChild(toast);
-            setTimeout(() => document.body.removeChild(toast), 2000);
+            showToast("New Card Started");
         };
 
         const btnCatalog = document.getElementById('btn-load-project');
@@ -2324,7 +2371,7 @@
 
                         document.body.removeChild(overlay);
                     } catch (e) {
-                        alert("Failed to load project: " + e.message);
+                        showCustomAlert("Failed to load project: " + e.message, "Load Error");
                     }
                 };
 
@@ -2348,7 +2395,7 @@
                         const url = URL.createObjectURL(blob);
                         window.open(url, '_blank');
                     } catch (err) {
-                        alert("Failed to view: " + err.message);
+                        showCustomAlert("Failed to view: " + err.message, "View Error");
                     } finally {
                         viewBtn.disabled = false;
                         viewBtn.innerText = "👁️";
@@ -2411,7 +2458,7 @@
                 window.open(url, '_blank');
             } catch (err) {
                 console.error(err);
-                alert("Failed to generate preview.");
+                showCustomAlert("Failed to generate preview.", "Error");
             } finally {
                 btn.innerText = "Preview in Browser";
                 btn.disabled = false;
@@ -2795,7 +2842,7 @@
 
             } catch (error) {
                 console.error("Publish error:", error);
-                alert("Failed to publish card: " + error.message);
+                showCustomAlert("Failed to publish card: " + error.message, "Publish Error");
             } finally {
                 btn.innerText = originalText;
                 btn.disabled = false;
