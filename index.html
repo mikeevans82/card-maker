@@ -61,6 +61,13 @@
         #viewport {
             flex-grow: 1;
             position: relative;
+            overflow: hidden;
+        }
+
+        #three-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
         }
 
         #loading-overlay {
@@ -204,6 +211,8 @@
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
+            width: max-content;
+            max-width: 90%;
             background: var(--panel-bg);
             backdrop-filter: blur(var(--glass-blur));
             padding: 10px;
@@ -307,6 +316,7 @@
                 <button id="btn-new-card" style="margin-bottom: 5px;">+ New Card</button>
                 <button id="btn-save-project">Save Card</button>
                 <button id="btn-load-project">Load Card</button>
+                <button id="btn-preview-card" style="background:#4caf50; color:white;">Preview in Browser</button>
                 <button id="btn-export-html" class="primary">Download Card</button>
             </div>
 
@@ -329,12 +339,7 @@
         <div id="viewport">
             <canvas id="three-canvas"></canvas>
 
-            <!-- Top Control: Open/Close -->
-            <div id="anim-control">
-                <span>Closed</span>
-                <input type="range" id="slider-open" min="0" max="1" step="0.01" value="0.5">
-                <span>Open</span>
-            </div>
+
 
             <!-- View Controls (Focus Modes) -->
             <div class="view-controls">
@@ -462,7 +467,19 @@
         camera.position.set(0, 10, getSafeZ());
 
         const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('three-canvas'), antialias: true, alpha: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        function updateRendererSize() {
+            const container = document.getElementById('viewport');
+            const w = container.offsetWidth;
+            const h = container.offsetHeight;
+            renderer.setSize(w, h);
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            return { w, h };
+        }
+        // Initial sizing
+        const container = document.getElementById('viewport');
+        renderer.setSize(container.offsetWidth, container.offsetHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.shadowMap.enabled = true;
 
@@ -513,14 +530,17 @@
         const matInside = new THREE.MeshBasicMaterial({ map: texInside, side: THREE.DoubleSide });
 
         // Groups
+        const mainCardGroup = new THREE.Group();
+        scene.add(mainCardGroup);
+
         const leftWing = new THREE.Group();
         const rightWing = new THREE.Group();
 
         // Offset Left Wing (Front) forward to fold ON TOP of Right Wing (Back)
         leftWing.position.z = PAPER_THICKNESS * 2;
 
-        scene.add(leftWing);
-        scene.add(rightWing);
+        mainCardGroup.add(leftWing);
+        mainCardGroup.add(rightWing);
 
         // Standard Centered Plane
         const geoBase = new THREE.PlaneGeometry(P_WIDTH, P_HEIGHT);
@@ -607,12 +627,94 @@
 
             leftWing.rotation.y = clampAngle;
             STATE.cardOpen = openFactor;
+
+            // Auto-Fit Camera if in Orbit mode (User Interaction)
+            if (STATE.viewMode === 'orbit') {
+                updateCameraFit(angle);
+            }
         }
 
-        document.getElementById('slider-open').addEventListener('input', (e) => {
-            updateFold(parseFloat(e.target.value));
-            if (STATE.viewMode !== 'orbit') return;
-        });
+        function updateCameraFit(angle) {
+            // Ensure world matrices are updated for accurate bounds
+            mainCardGroup.updateWorldMatrix(true, true);
+
+            const box = new THREE.Box3().setFromObject(mainCardGroup);
+
+            // If box is empty/invalid (e.g. first run), fallback
+            if (box.isEmpty()) return;
+
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            const center = new THREE.Vector3();
+            box.getCenter(center);
+
+            // Constraint: Never treat the content as smaller than a folded card (5.5 x 8.5)
+            // This prevents excessive zooming when viewing the card edge-on.
+            const width = Math.max(size.x, 5.5);
+            const height = Math.max(size.y, 8.5);
+
+            const sphere = new THREE.Sphere();
+            box.getBoundingSphere(sphere);
+
+            // Recalc Safe Z
+            const aspect = camera.aspect;
+            const vFov = camera.fov * (Math.PI / 180);
+
+            // Add Padding
+            const PAD_H = 1.05;
+            const PAD_W = 1.05;
+
+            const fitH = (height * PAD_H) / Math.tan(vFov / 2);
+            const fitW = (width * PAD_W) / (Math.tan(vFov / 2) * aspect);
+
+            // Use Sphere Radius to guarantee a safe minimum distance regardless of rotation
+            const sphereDist = (sphere.radius * 1.05) / Math.sin(vFov / 2);
+
+            // Min distance floor to prevent extreme zooming
+            // We can relax the hard floor since the width/height constraint handles the geometry case
+            const bestZ = Math.max(5, fitH, fitW, sphereDist) * 0.7;
+
+            // Smoothly move Camera (Pan + Zoom)
+            const targetPos = new THREE.Vector3(center.x, center.y, 0); // Keep Y center relative to card vertically? Usually card is at Y=0. center.y should be 0. Let's trust the box center.
+
+            // For simple "Flat Front" Logic (default orbit):
+            // Camera X should align with Center X.
+            // Camera Z should be bestZ.
+
+            // However, if user tilted the camera (Orbit), we want to preserve direction?
+            // User Request: "camera to pan over and zoom in".
+            // Implementation: We'll modify target and set distance.
+
+            // Get current direction vector
+            const offset = camera.position.clone().sub(controls.target);
+            const currentDist = offset.length();
+            const dir = offset.normalize();
+
+            // New Target
+            controls.target.copy(targetPos);
+
+            // New Position: Target + Dir * bestZ ? 
+            // bestZ is "Distance to plane" roughly.
+            // If we are looking top-down, Z is height.
+            // Let's just use bestZ as the distance modulus for simplicity, 
+            // or projection if aligned. 
+            // Since standard view is Z-aligned:
+
+            // If the camera is roughly looking down Z:
+            if (Math.abs(dir.z) > 0.5) {
+                // Adjust scaling to ensure Z-depth matches bestZ
+                // NewDist such that the Z-component equals bestZ?
+                // No, bestZ is the required distance from the plane.
+                camera.position.copy(targetPos).add(dir.multiplyScalar(bestZ));
+            } else {
+                // Side view? Just Pan.
+                camera.position.copy(targetPos).add(offset); // Pan only
+            }
+
+            controls.update();
+        }
+
+
 
         // --- Canvas Drawing Logic ---
         const Canvas2D = {
@@ -864,18 +966,15 @@
         window.addEventListener('resize', onWindowResize);
 
         function onWindowResize() {
-            const w = window.innerWidth;
-            const h = window.innerHeight;
-
-            camera.aspect = w / h;
-            camera.updateProjectionMatrix();
-            renderer.setSize(w, h);
+            const { w, h } = updateRendererSize();
 
             const safeZ = getSafeZ();
             const sign = (camera.position.z >= 0) ? 1 : -1;
 
+            // Recalc existing Camera Fit if in orbit mode
             if (STATE.viewMode === 'orbit') {
-                camera.position.z = safeZ * sign;
+                const angle = (1 - STATE.cardOpen) * Math.PI;
+                updateCameraFit(angle);
             } else {
                 const targetPos = camera.position.clone();
                 targetPos.z = safeZ * sign;
@@ -884,19 +983,35 @@
         }
 
         function getSafeZ() {
-            const aspect = window.innerWidth / window.innerHeight;
+            const container = document.getElementById('viewport');
+            const aspect = container.offsetWidth / container.offsetHeight;
             const vFov = camera.fov * (Math.PI / 180);
 
-            // Height fit: Card is 8.5 high. Let's provide some padding (10).
-            // Width fit: Card is 11 wide (open). Let's provide padding (13).
+            // Height fit: Card is 8.5 high. Let's provide some padding (1.05x).
+            // Width fit: Card is 11 wide (open). Let's provide padding (1.05x).
 
-            const heightFit = 5.0 / Math.tan(vFov / 2);
-            const widthFit = 6.5 / (Math.tan(vFov / 2) * aspect);
+            const heightFit = (8.5 * 1.05) / Math.tan(vFov / 2);
+            const widthFit = (11.0 * 1.05) / (Math.tan(vFov / 2) * aspect);
+            const sphereDist = (7.0 * 1.05) / Math.sin(vFov / 2); // Approx radius 7
 
-            return Math.max(15, heightFit, widthFit);
+            return Math.max(10, heightFit, widthFit, sphereDist) * 0.7;
         }
 
         // --- View Modes ---
+        let cardYTarget = 0; // Target Y rotation for mainCardGroup
+
+        // Global Animation Loop for smooth transitions
+        function animateMain() {
+            requestAnimationFrame(animateMain);
+
+            // Smooth Card Y Rotation (Front/Back Switching)
+            mainCardGroup.rotation.y += (cardYTarget - mainCardGroup.rotation.y) * 0.1;
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animateMain();
+
         // viewPositions is defined above in the geometry section
 
         document.querySelectorAll('.view-btn').forEach(btn => {
@@ -917,8 +1032,8 @@
             if (mode === 'orbit') {
                 controls.enabled = true;
                 // Tween camera back to default
-                const safeZ = getSafeZ();
-                animateCamera(new THREE.Vector3(0, 10, safeZ), new THREE.Vector3(0, 0, 0));
+                const angle = (1 - STATE.cardOpen) * Math.PI;
+                updateCameraFit(angle);
                 return;
             }
 
@@ -927,18 +1042,32 @@
             // Auto-open/close card based on view
             if (mode === 'front') {
                 gsapLikeFold(0);
+                cardYTarget = 0;
             } else if (mode === 'back') {
                 gsapLikeFold(0);
+                cardYTarget = Math.PI; // Rotate card 180
             } else {
                 gsapLikeFold(1);
+                cardYTarget = 0;
             }
 
             const t = viewPositions[mode];
             if (t) {
+                // For Back view, we now rotate the card, so we KEEP the camera at +Z
+                // viewPositions['back'] previously had -15. We essentially treat it like Front now regarding camera position.
+
+                let targetPos = t.pos.clone();
+                if (mode === 'back') {
+                    // Override standard back definition to look from Front (+Z)
+                    // because the card is rotating to show its back.
+                    targetPos = viewPositions['front'].pos.clone();
+                    // But we might want to preserve the specific look vector if different? 
+                    // They are same (0,0,0).
+                }
+
                 const safeZ = getSafeZ();
-                const targetPos = t.pos.clone();
-                // Preserve sign
-                const sign = targetPos.z >= 0 ? 1 : -1;
+                // Ensure positive Z since we rotate the card
+                const sign = 1;
                 targetPos.z = safeZ * sign;
 
                 animateCamera(targetPos, t.look);
@@ -961,7 +1090,7 @@
 
                 camera.position.lerpVectors(startPos, targetPos, ease);
                 controls.target.lerpVectors(startLook, targetLook, ease);
-                controls.update(); // important
+                // controls.update(); // handled in global loop now
 
                 if (t < 1) requestAnimationFrame(tick);
             }
@@ -981,7 +1110,7 @@
 
                 const val = startVal + (targetVal - startVal) * ease;
                 updateFold(val);
-                document.getElementById('slider-open').value = val;
+                // No slider to update anymore
 
                 if (t < 1) requestAnimationFrame(tick);
             }
@@ -1501,6 +1630,281 @@
             };
         }
 
+        function getRobustViewerHTML(dataOut, dataIn) {
+            return `<!DOCTYPE html>
+<html>
+<head>
+    <title>Card Viewer</title>
+    <style>
+        body{ margin:0; overflow:hidden; background:#222; font-family: sans-serif; }
+        #error-log { position: fixed; top: 10px; left: 10px; color: #f55; background: rgba(0,0,0,0.8); padding: 10px; display: none; z-index: 999; pointer-events: none; }
+        .controls { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100; display: flex; gap: 10px; }
+        .controls button { background: rgba(0,0,0,0.6); color: white; border: 1px solid rgba(255,255,255,0.4); padding: 8px 16px; border-radius: 20px; cursor: pointer; font-family: sans-serif; font-size: 14px; transition: background 0.2s; }
+        .controls button:hover { background: rgba(255,255,255,0.2); }
+    </style>
+    <script>
+        window.onerror = function(msg, url, line, col, error) {
+            const div = document.getElementById('error-log');
+            if(div) {
+                div.style.display = 'block';
+                div.innerHTML += "Error: " + msg + "<br>Line: " + line + "<br>";
+            }
+            console.error(error);
+        };
+    <\/script>
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"><\/script>
+    <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js"}}<\/script>
+</head>
+<body>
+<div id="error-log"></div>
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+
+    try {
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x222222);
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
+        
+        const renderer = new THREE.WebGLRenderer({antialias:true});
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        // --- Helper Functions ---
+        function onWindowResize() {
+            const w = window.innerWidth, h = window.innerHeight;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+            
+            const aspect = w / h;
+            const vFov = camera.fov * (Math.PI / 180);
+            
+            const PAD = 1.1; 
+            const fitH = (8.5 * PAD) / Math.tan(vFov / 2); 
+            const fitW = (11.0 * PAD) / (Math.tan(vFov / 2) * aspect); 
+            const sphereDist = (7.0 * PAD) / Math.sin(vFov / 2); 
+
+            const safeZ = Math.max(10, fitH, fitW, sphereDist) * 0.8;
+            camera.position.z = Math.max(safeZ, 5); 
+        }
+        window.addEventListener('resize', onWindowResize);
+        
+        // --- Scene Setup ---
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        const dl = new THREE.DirectionalLight(0xffffff, 0.8); dl.position.set(5,10,7); scene.add(dl);
+
+        // Geometry
+        const w=5.5, h=8.5;
+        const gBase = new THREE.PlaneGeometry(w, h);
+        const THICKNESS = 0.01;
+        const OFFSET = w/2;
+
+        // Textures
+        const texOut = new THREE.TextureLoader().load('${dataOut}');
+        const texIn = new THREE.TextureLoader().load('${dataIn}');
+        texOut.colorSpace = THREE.SRGBColorSpace;
+        texIn.colorSpace = THREE.SRGBColorSpace;
+        
+        const matOut = new THREE.MeshBasicMaterial({map:texOut, side:THREE.FrontSide});
+        const matIn = new THREE.MeshBasicMaterial({map:texIn, side:THREE.FrontSide});
+
+        // Group Hierarchy
+        const cardWrapper = new THREE.Group();
+        scene.add(cardWrapper);
+
+        const leftGroup = new THREE.Group();
+        const rightGroup = new THREE.Group();
+        
+        leftGroup.position.set(0, 0, THICKNESS);
+        rightGroup.position.set(0, 0, 0);
+
+        cardWrapper.add(leftGroup);
+        cardWrapper.add(rightGroup);
+        
+        function setUVs(geo, min, max) {
+            const uvs = geo.attributes.uv;
+            for(let i=0; i<uvs.count; i++){
+                let u = uvs.getX(i);
+                u = min + u * (max - min);
+                uvs.setX(i, u);
+            }
+        }
+
+        // --- Mesh Construction ---
+        // Left Wing
+        const lIn = new THREE.Mesh(gBase.clone(), matIn); 
+        lIn.position.set(-OFFSET, 0, 0); 
+        setUVs(lIn.geometry, 0, 0.5); 
+        leftGroup.add(lIn);
+        
+        const lOut = new THREE.Mesh(gBase.clone(), matOut); 
+        lOut.position.set(-OFFSET, 0, -THICKNESS);
+        lOut.rotation.y = Math.PI; 
+        setUVs(lOut.geometry, 0.5, 1.0); 
+        leftGroup.add(lOut);
+
+        // Right Wing
+        const rIn = new THREE.Mesh(gBase.clone(), matIn); 
+        rIn.position.set(OFFSET, 0, 0); 
+        setUVs(rIn.geometry, 0.5, 1.0);
+        rightGroup.add(rIn);
+        
+        const rOut = new THREE.Mesh(gBase.clone(), matOut); 
+        rOut.position.set(OFFSET, 0, -THICKNESS);
+        rOut.rotation.y = Math.PI; 
+        setUVs(rOut.geometry, 0.0, 0.5);
+        rightGroup.add(rOut);
+        
+        // --- State ---
+        const CLOSED_ANGLE = Math.PI * 0.95; 
+        const OPEN_ANGLE = Math.PI * 0.05; 
+        let targetAngle = CLOSED_ANGLE; 
+        leftGroup.rotation.y = CLOSED_ANGLE;
+
+        // Camera / Rotation State
+        let rotationTargetZ = 0; 
+        let rotationTargetY = 0;
+        let isLandscape = false;
+        
+        let cameraTargetPos = null;
+        let cameraTargetLook = null;
+        let cameraTweenTime = 0;
+        const CAMERA_DURATION = 1000;
+
+        // Init Camera
+        camera.position.set(0, 5, 15);
+        onWindowResize();
+
+        // --- Interaction ---
+        let isDragging = false;
+        document.addEventListener('mousedown', () => isDragging = false);
+        document.addEventListener('mousemove', () => isDragging = true);
+        document.addEventListener('mouseup', (e) => {
+            if (e.target.closest && e.target.closest('.controls')) return;
+            if (!isDragging) {
+                 targetAngle = (Math.abs(targetAngle - CLOSED_ANGLE) < 0.1) ? OPEN_ANGLE : CLOSED_ANGLE;
+            }
+        });
+
+        // --- Tweening Helpers ---
+        function tweenCamera(pos, look) {
+             cameraTargetPos = pos.clone();
+             cameraTargetLook = look.clone();
+             cameraTweenTime = 0;
+             controls.enabled = false;
+        }
+
+        function tweenCameraToSafeZ(sign) {
+             const aspect = window.innerWidth / window.innerHeight;
+             const vFov = camera.fov * (Math.PI / 180);
+             const PAD = 1.1;
+             const fitH = (8.5 * PAD) / Math.tan(vFov / 2);
+             const fitW = (11.0 * PAD) / (Math.tan(vFov / 2) * aspect);
+             const sphereDist = (7.0 * PAD) / Math.sin(vFov / 2);
+             const safeZ = Math.max(10, fitH, fitW, sphereDist) * 0.8 * sign;
+             tweenCamera(new THREE.Vector3(0, 0, safeZ), new THREE.Vector3(0, 0, 0));
+        }
+
+        // --- Animation Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // 1. Fold
+            leftGroup.rotation.y += (targetAngle - leftGroup.rotation.y) * 0.05;
+            
+            // 2. Global Rotation
+            cardWrapper.rotation.z += (rotationTargetZ - cardWrapper.rotation.z) * 0.05;
+            cardWrapper.rotation.y += (rotationTargetY - cardWrapper.rotation.y) * 0.05;
+
+            // 3. Camera Tween
+            if (cameraTargetPos && cameraTargetLook) {
+                 cameraTweenTime += 16.66;
+                 let t = Math.min(cameraTweenTime / CAMERA_DURATION, 1);
+                 
+                 camera.position.lerp(cameraTargetPos, 0.1); 
+                 controls.target.lerp(cameraTargetLook, 0.1);
+                 
+                 if (camera.position.distanceTo(cameraTargetPos) < 0.1 && t >= 1) {
+                     cameraTargetPos = null;
+                     controls.enabled = true;
+                 }
+            } else {
+                 if (controls.enabled) {
+                     const tipX = -5.5 * Math.cos(leftGroup.rotation.y);
+                     
+                     // Bounding Box Logic for correct centering
+                     const minX = Math.min(0, tipX);
+                     const maxX = 5.5;
+                     const visCenterLocal = (minX + maxX) / 2;
+                     
+                     const sign = (Math.abs(rotationTargetY) > 2) ? -1 : 1; 
+                     const targetX = visCenterLocal * sign;
+                     
+                     const delta = (targetX - controls.target.x) * 0.1;
+                     controls.target.x += delta;
+                     camera.position.x += delta;
+                 }
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // --- UI Handlers ---
+        // Helpers to reset orientation
+        function resetOrientation() {
+             isLandscape = false;
+             rotationTargetZ = 0;
+        }
+
+        window.btnFront = () => {
+             targetAngle = CLOSED_ANGLE;
+             rotationTargetY = 0;
+             resetOrientation();
+             tweenCameraToSafeZ(1);
+        };
+        
+        window.btnInside = () => {
+             targetAngle = OPEN_ANGLE;
+             rotationTargetY = 0;
+             resetOrientation();
+             tweenCameraToSafeZ(1);
+        };
+
+        window.btnBack = () => {
+             targetAngle = CLOSED_ANGLE;
+             rotationTargetY = Math.PI;
+             resetOrientation();
+             tweenCameraToSafeZ(1); 
+        };
+        
+        window.btnRotate = () => {
+             isLandscape = !isLandscape;
+             rotationTargetZ = isLandscape ? -Math.PI/2 : 0;
+        };
+
+    } catch (e) {
+        document.getElementById('error-log').style.display = 'block';
+        document.getElementById('error-log').innerText = "Runtime Error: " + e.message;
+        console.error(e);
+    }
+<\/script>
+
+<div class="controls">
+    <button onclick="window.btnFront()">Front</button>
+    <button onclick="window.btnInside()">Inside</button>
+    <button onclick="window.btnBack()">Back</button>
+    <button onclick="window.btnRotate()">Rotate</button>
+</div>
+</body>
+</html>`;
+        }
+
         function getViewerHTML(dataOut, dataIn) {
             return `<!DOCTYPE html>
 <html>
@@ -1541,9 +1945,10 @@
         
         const aspect = w / h;
         const vFov = camera.fov * (Math.PI / 180);
-        const fitH = 5.0 / Math.tan(vFov / 2); // 8.5 height + padding
-        const fitW = 6.5 / (Math.tan(vFov / 2) * aspect); // 11 width + padding
-        const safeZ = Math.max(12, fitH, fitW);
+        const fitH = (Math.max(8.5, 8.5) * 1.05) / Math.tan(vFov / 2); // Ensure min height 8.5
+        const fitW = (Math.max(11.0, 5.5) * 1.05) / (Math.tan(vFov / 2) * aspect); // Ensure min width 5.5 (Closed)
+        const sphereDist = (7.0 * 1.05) / Math.sin(vFov / 2);
+        const safeZ = Math.max(5, fitH, fitW, sphereDist) * 0.7;
         camera.position.z = safeZ;
         camera.position.y = 5; // Look down slightly
     }
@@ -1629,10 +2034,95 @@
         }
     });
 
-    function animate() {
+    // --- Camera Tweening ---
+    let cameraTargetPos = null;
+    let cameraTargetLook = null;
+    let cameraTweenTime = 0;
+    const CAMERA_DURATION = 1000; // ms
+
+    function tweenCamera(targetPos, targetLook) {
+        cameraTargetPos = targetPos.clone();
+        cameraTargetLook = targetLook.clone();
+        cameraTweenTime = 0;
+        
+        // Disable controls during tween
+        controls.enabled = false;
+    }
+
+    // --- Rotation Tweening ---
+    let rotationTargetZ = 0; // Landscape/Portrait
+    let rotationTargetY = 0; // Front/Back flip
+
+    function animate(time) {
         requestAnimationFrame(animate);
-        // Smooth Lerp
-        leftGroup.rotation.y += (targetAngle - leftGroup.rotation.y) * 0.05;
+        
+        // 1. Fold Animation
+        const currentAngle = leftGroup.rotation.y;
+        const nextAngle = currentAngle + (targetAngle - currentAngle) * 0.05;
+        leftGroup.rotation.y = nextAngle;
+        
+        // 2. Card Orientation (Landscape/Portrait Z)
+        // We act on cardWrapper.rotation.z
+        const currentRotZ = cardWrapper.rotation.z;
+        cardWrapper.rotation.z += (rotationTargetZ - currentRotZ) * 0.05;
+
+        // 3. Card Flip (Front/Back Y)
+        // We act on cardWrapper.rotation.y
+        const currentRotY = cardWrapper.rotation.y;
+        cardWrapper.rotation.y += (rotationTargetY - currentRotY) * 0.05;
+
+        // 4. Camera Tweening (Still useful for Inside Views or reset)
+        if (cameraTargetPos && cameraTargetLook) {
+             const dt = 16.66;
+             cameraTweenTime += dt;
+             let t = Math.min(cameraTweenTime / CAMERA_DURATION, 1);
+             const ease = t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+
+             camera.position.lerp(cameraTargetPos, 0.05);
+             controls.target.lerp(cameraTargetLook, 0.05);
+             
+             if (camera.position.distanceTo(cameraTargetPos) < 0.1) {
+                 cameraTargetPos = null;
+                 controls.enabled = true;
+             }
+        } 
+        else {
+            // Dynamic Centering Logic 
+            if (controls.enabled) {
+                // ... (Existing centering logic remains same)
+                
+                // IMPORTANT: When flipping to BACK (RotY=PI), the visual calculation changes.
+                // Left Wing angle is relative to wrapper.
+                // If Wrapper is rotated 180, the 'Left Wing' is on the Right.
+                // But let's assume simple centroid centering of the visible bounding box.
+                
+                // Tip Local X = -5.5 * cos(angle).
+                // If RotY = 0: World X = Tip Local X.
+                // If RotY = PI: World X = -Tip Local X.
+                
+                // Calculate VISUAL bounding width effectively
+                const tipLocalX = -5.5 * Math.cos(nextAngle);
+                
+                // Effective width for calculating Zoom is handled by our constant checks in 'resize' 
+                // but here for Centering we just need roughly the centroid.
+                
+                const minX = Math.min(0, tipLocalX);
+                const maxX = 5.5;
+                const localCenter = (minX + maxX) / 2;
+                
+                // If rotated 180, the World Center is roughly -localCenter
+                if (Math.abs(rotationTargetY) > 0.1) {
+                    centerX = -localCenter;
+                } else {
+                    centerX = localCenter;
+                }
+
+                const delta = centerX - controls.target.x;
+                controls.target.x += delta;
+                camera.position.x += delta; 
+            }
+        }
+        
         controls.update();
         renderer.render(scene, camera);
     }
@@ -1643,33 +2133,32 @@
     document.getElementById('btn-close').onclick = () => targetAngle = CLOSED_ANGLE;
     
     document.getElementById('btn-front').onclick = () => {
-        // Reset orbit
-        controls.reset();
-        camera.position.set(0, 0, 15);
-        camera.lookAt(0,0,0);
-        onWindowResize(); // Recalc safe Z
+         // Face Front: Rotation Y = 0
+         rotationTargetY = 0;
+         tweenCameraToSafeZ(1); // Ensure positive Z
     };
     
     document.getElementById('btn-back').onclick = () => {
-        controls.reset();
-        camera.position.set(0, 0, -15);
-        camera.lookAt(0,0,0);
-        
-        // Recalc safe Z but negative
-        const w = window.innerWidth, h = window.innerHeight;
-        const aspect = w / h;
-        const vFov = camera.fov * (Math.PI / 180);
-        const fitH = 5.0 / Math.tan(vFov / 2);
-        const fitW = 6.5 / (Math.tan(vFov / 2) * aspect);
-        const safeZ = Math.max(12, fitH, fitW);
-        camera.position.z = -safeZ;
+         // Face Back: Rotation Y = 180
+         rotationTargetY = Math.PI;
+         tweenCameraToSafeZ(1); // Still positive Z, looking at flipped card
     };
+
+    function tweenCameraToSafeZ(sign) {
+         onWindowResize(); 
+         const aspect = window.innerWidth / window.innerHeight;
+         const vFov = camera.fov * (Math.PI / 180);
+         const fitH = (8.5 * 1.05) / Math.tan(vFov / 2);
+         const fitW = (11.0 * 1.05) / (Math.tan(vFov / 2) * aspect);
+         const sphereDist = (7.0 * 1.05) / Math.sin(vFov / 2);
+         const safeZ = Math.max(10, fitH, fitW, sphereDist) * 0.7 * sign;
+         tweenCamera(new THREE.Vector3(0, 0, safeZ), new THREE.Vector3(0, 0, 0));
+    }
 
     let isLandscape = false;
     document.getElementById('btn-rotate').onclick = () => {
         isLandscape = !isLandscape;
-        // Rotate Z to lay on side
-        cardWrapper.rotation.z = isLandscape ? -Math.PI / 2 : 0;
+        rotationTargetZ = isLandscape ? -Math.PI / 2 : 0;
     };
 
 <\/script>
@@ -1821,6 +2310,7 @@
 
                         STATE.selectedElement = null;
                         Canvas2D.render();
+                        setMode('orbit');
                         document.body.removeChild(overlay);
                     } catch (e) {
                         alert("Failed to load project: " + e.message);
@@ -1842,7 +2332,7 @@
                     try {
                         const data = JSON.parse(localStorage.getItem(key));
                         const { dataOut, dataIn } = await renderCardToDataUrls(data.outside || [], data.inside || []);
-                        const html = getViewerHTML(dataOut, dataIn);
+                        const html = getRobustViewerHTML(dataOut, dataIn);
                         const blob = new Blob([html], { type: 'text/html' });
                         const url = URL.createObjectURL(blob);
                         window.open(url, '_blank');
@@ -1892,6 +2382,32 @@
             document.body.appendChild(overlay);
         };
 
+        // Preview Card
+        async function previewCardInBrowser() {
+            const btn = document.getElementById('btn-preview-card');
+            btn.innerText = "Generating...";
+            btn.disabled = true;
+            try {
+                // Generate Texture Data URIs
+                const dataOut = canvasOutside.toDataURL('image/jpeg', 0.8);
+                const dataIn = canvasInside.toDataURL('image/jpeg', 0.8);
+
+                const htmlContent = getRobustViewerHTML(dataOut, dataIn);
+
+                // Create Blob and open
+                const blob = new Blob([htmlContent], { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+            } catch (err) {
+                console.error(err);
+                alert("Failed to generate preview.");
+            } finally {
+                btn.innerText = "Preview in Browser";
+                btn.disabled = false;
+            }
+        }
+        document.getElementById('btn-preview-card').onclick = previewCardInBrowser;
+
         document.getElementById('btn-export-html').onclick = () => {
             // Remove confirm to avoid blocking
             // if (!confirm("This will download the card as a standalone HTML file which can be opened in any web browser.\n\nDo you want to continue?")) return;
@@ -1900,7 +2416,7 @@
             const dataIn = canvasInside.toDataURL('image/jpeg', 0.8);
 
             // Minimal Viewer HTML
-            const html = getViewerHTML(dataOut, dataIn);
+            const html = getRobustViewerHTML(dataOut, dataIn);
 
             const blob = new Blob([html], { type: 'text/html' });
             const a = document.createElement('a');
@@ -2156,182 +2672,7 @@
             const dataOut = canvasOutside.toDataURL('image/jpeg', 0.8);
             const dataIn = canvasInside.toDataURL('image/jpeg', 0.8);
 
-            return `<!DOCTYPE html>
-<html>
-<head>
-    <title>You've received a card!</title>
-    <style>
-        body{margin:0;overflow:hidden;background:#222;}
-        .controls { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100; display: flex; gap: 10px; }
-        .controls button { background: rgba(0,0,0,0.6); color: white; border: 1px solid rgba(255,255,255,0.4); padding: 8px 16px; border-radius: 20px; cursor: pointer; font-family: sans-serif; font-size: 14px; transition: background 0.2s; }
-        .controls button:hover { background: rgba(255,255,255,0.2); }
-    </style>
-    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"><\/script>
-    <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js"}}<\/script>
-</head>
-<body>
-<script type="module">
-    import * as THREE from 'three';
-    import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
-
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x222222);
-    const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
-    
-    const renderer = new THREE.WebGLRenderer({antialias:true});
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
-    
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-
-    // Responsive Logic
-    function onWindowResize() {
-        const w = window.innerWidth, h = window.innerHeight;
-        camera.aspect = w / h;
-        camera.updateProjectionMatrix();
-        renderer.setSize(w, h);
-        
-        const aspect = w / h;
-        const vFov = camera.fov * (Math.PI / 180);
-        const fitH = 5.0 / Math.tan(vFov / 2);
-        const fitW = 6.5 / (Math.tan(vFov / 2) * aspect);
-        const safeZ = Math.max(12, fitH, fitW);
-        camera.position.z = safeZ;
-        camera.position.y = 5;
-    }
-    window.addEventListener('resize', onWindowResize);
-    onWindowResize();
-    
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const dl = new THREE.DirectionalLight(0xffffff, 0.8); dl.position.set(5,10,7); scene.add(dl);
-
-    // Geometry
-    const w=5.5, h=8.5;
-    const gBase = new THREE.PlaneGeometry(w, h); // Base geometry
-    const THICKNESS = 0.01;
-    const OFFSET = w/2;
-
-    // Materials
-    const texOut = new THREE.TextureLoader().load('${dataOut}');
-    const texIn = new THREE.TextureLoader().load('${dataIn}');
-    texOut.colorSpace = THREE.SRGBColorSpace;
-    texIn.colorSpace = THREE.SRGBColorSpace;
-    
-    const matOut = new THREE.MeshBasicMaterial({map:texOut, side:THREE.FrontSide});
-    const matIn = new THREE.MeshBasicMaterial({map:texIn, side:THREE.FrontSide});
-
-    const leftGroup = new THREE.Group();
-    const rightGroup = new THREE.Group();
-    const cardWrapper = new THREE.Group();
-    scene.add(cardWrapper);
-    cardWrapper.add(leftGroup);
-    cardWrapper.add(rightGroup);
-
-    // Front wing (Left) sits on top of Back wing (Right)
-    leftGroup.position.z = THICKNESS * 2; 
-
-    // scene.add(leftGroup); scene.add(rightGroup);
-    
-    // Helper
-    function setUVs(geo, min, max) {
-        const uvs = geo.attributes.uv;
-        for(let i=0; i<uvs.count; i++){
-            let u = uvs.getX(i);
-            u = min + u * (max - min);
-            uvs.setX(i, u);
-        }
-    }
-
-    // Left Wing (Front Cover + Inside Left)
-    const lIn = new THREE.Mesh(gBase.clone(), matIn); 
-    lIn.position.set(-OFFSET, 0, THICKNESS);
-    setUVs(lIn.geometry, 0, 0.5); // Inside Left
-    leftGroup.add(lIn);
-    
-    const lOut = new THREE.Mesh(gBase.clone(), matOut); 
-    lOut.position.set(-OFFSET, 0, -THICKNESS);
-    lOut.rotation.y = Math.PI; 
-    setUVs(lOut.geometry, 0.5, 1.0); // Fixed Front
-    leftGroup.add(lOut);
-
-    // Right Wing (Back Cover + Inside Right)
-    const rIn = new THREE.Mesh(gBase.clone(), matIn); 
-    rIn.position.set(OFFSET, 0, THICKNESS);
-    setUVs(rIn.geometry, 0.5, 1.0);
-    rightGroup.add(rIn);
-    
-    const rOut = new THREE.Mesh(gBase.clone(), matOut); 
-    rOut.position.set(OFFSET, 0, -THICKNESS);
-    rOut.rotation.y = Math.PI; 
-    setUVs(rOut.geometry, 0.0, 0.5); // Fixed Back
-    rightGroup.add(rOut);
-    
-    // Interaction State
-    const CLOSED_ANGLE = Math.PI * 0.9; // 90% Closed
-    const OPEN_ANGLE = Math.PI * 0.1;   // 90% Open
-    let targetAngle = CLOSED_ANGLE; 
-    leftGroup.rotation.y = CLOSED_ANGLE;
-
-    let isDragging = false;
-    document.addEventListener('mousedown', () => isDragging = false);
-    document.addEventListener('mousemove', () => isDragging = true);
-    document.addEventListener('mouseup', (e) => {
-        if (e.target.closest && e.target.closest('.controls')) return;
-        if (!isDragging) {
-             targetAngle = (targetAngle === CLOSED_ANGLE) ? OPEN_ANGLE : CLOSED_ANGLE;
-        }
-    });
-
-    function animate() {
-        requestAnimationFrame(animate);
-        // Smooth Lerp
-        leftGroup.rotation.y += (targetAngle - leftGroup.rotation.y) * 0.05;
-        controls.update();
-        renderer.render(scene, camera);
-    }
-    animate();
-
-    // UI Logic
-    document.getElementById('btn-open').onclick = () => targetAngle = OPEN_ANGLE;
-    document.getElementById('btn-close').onclick = () => targetAngle = CLOSED_ANGLE;
-
-    document.getElementById('btn-front').onclick = () => {
-        controls.reset();
-        camera.position.set(0, 0, 15);
-        camera.lookAt(0,0,0);
-        onWindowResize(); 
-    };
-
-    document.getElementById('btn-back').onclick = () => {
-        controls.reset();
-        camera.position.set(0, 0, -15);
-        camera.lookAt(0,0,0);
-        // Recalc safe Z but negative
-        const w = window.innerWidth, h = window.innerHeight;
-        const aspect = w / h;
-        const vFov = camera.fov * (Math.PI / 180);
-        const fitH = 5.0 / Math.tan(vFov / 2);
-        const fitW = 6.5 / (Math.tan(vFov / 2) * aspect);
-        const safeZ = Math.max(12, fitH, fitW);
-        camera.position.z = -safeZ;
-    };
-
-    let isLandscape = false;
-    document.getElementById('btn-rotate').onclick = () => {
-        isLandscape = !isLandscape;
-        cardWrapper.rotation.z = isLandscape ? -Math.PI / 2 : 0;
-    };
-<\/script>
-<div class="controls">
-    <button id="btn-open">Open</button>
-    <button id="btn-close">Close</button>
-    <button id="btn-front">Front</button>
-    <button id="btn-back">Back</button>
-    <button id="btn-rotate">Rotate</button>
-</div>
-</body>
-</html>`;
+            return getRobustViewerHTML(dataOut, dataIn);
         }
 
         document.getElementById('btn-publish-cloud').onclick = async () => {
@@ -2372,6 +2713,12 @@
         // --- Render Loop ---
         function animate() {
             requestAnimationFrame(animate);
+
+            // Smooth Rotation for Main Group (Front/Back views)
+            if (Math.abs(cardYTarget - mainCardGroup.rotation.y) > 0.001) {
+                mainCardGroup.rotation.y += (cardYTarget - mainCardGroup.rotation.y) * 0.05;
+            }
+
             controls.update();
 
             // Fix for initial load race condition or context loss
