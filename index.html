@@ -766,7 +766,9 @@
             pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
 
             if (isDragging && STATE.selectedElement && STATE.viewMode !== 'orbit') {
-                handleDrag();
+                if (!STATE.selectedElement.locked) {
+                    handleDrag();
+                }
             }
         }
         function getCanvasCoords(hit) {
@@ -836,7 +838,10 @@
 
                 if (found) {
                     STATE.selectedElement = found;
-                    isDragging = true;
+                    // Only start drag if not locked
+                    if (!found.locked) {
+                        isDragging = true;
+                    }
                     controls.enabled = false;
                     showProperties(found);
                     Canvas2D.render();
@@ -1260,9 +1265,9 @@
             p.style.transform = 'translateX(0)';
 
             // Common props
+            content.appendChild(createPropCheckbox('Locked', item.locked || false, v => { item.locked = v; }));
             content.appendChild(createPropInput('X Position', item.x, v => { item.x = parseInt(v); Canvas2D.render(); }));
             content.appendChild(createPropInput('Y Position', item.y, v => { item.y = parseInt(v); Canvas2D.render(); }));
-            // content.appendChild(createPropInput('Rotation', item.rotation, v => { item.rotation = parseFloat(v); Canvas2D.render(); }));
 
             if (item.type === 'text') {
                 content.appendChild(createPropText('Content', item.text, v => {
@@ -1308,6 +1313,15 @@
             div.className = 'control-group';
             div.innerHTML = `<label>${label}</label><input type="color" value="${val}" style="width:100%; height:30px;">`;
             div.querySelector('input').oninput = (e) => onChange(e.target.value);
+            return div;
+        }
+
+        function createPropCheckbox(label, val, onChange) {
+            const div = document.createElement('div');
+            div.className = 'control-group';
+            div.style.cssText = "flex-direction: row; align-items: center; justify-content: space-between;";
+            div.innerHTML = `<label>${label}</label><input type="checkbox" ${val ? 'checked' : ''}>`;
+            div.querySelector('input').onchange = (e) => onChange(e.target.checked);
             return div;
         }
 
@@ -1385,7 +1399,8 @@
                         id: 'scan-out', type: 'image', imgElement: img,
                         src: evt.target.result, // Persist data
                         x: Canvas2D.width / 2, y: Canvas2D.height / 2,
-                        width: Canvas2D.width, height: Canvas2D.height
+                        width: Canvas2D.width, height: Canvas2D.height,
+                        locked: true
                     }];
                     Canvas2D.render();
 
@@ -1422,7 +1437,8 @@
                         id: 'scan-in', type: 'image', imgElement: img,
                         src: evt.target.result, // Persist data
                         x: Canvas2D.width / 2, y: Canvas2D.height / 2,
-                        width: Canvas2D.width, height: Canvas2D.height
+                        width: Canvas2D.width, height: Canvas2D.height,
+                        locked: true
                     }];
                     Canvas2D.render();
                     e.target.value = ''; // Reset
@@ -1454,132 +1470,39 @@
             return hydrated;
         }
 
-        document.getElementById('btn-save-project').onclick = () => {
-            const name = prompt("Enter a name for the card:\n(Note: Cards are saved to this browser's memory)", "My Card");
-            if (!name) return;
+        async function renderCardToDataUrls(outsideLayers, insideLayers) {
+            const lOut = await hydrateLayers(outsideLayers);
+            const lIn = await hydrateLayers(insideLayers);
 
-            const data = {
-                version: 1,
-                date: Date.now(),
-                outside: STATE.layers.outside.map(l => ({ ...l, imgElement: null })),
-                inside: STATE.layers.inside.map(l => ({ ...l, imgElement: null }))
+            const cOut = document.createElement('canvas');
+            cOut.width = Canvas2D.width;
+            cOut.height = Canvas2D.height;
+            const ctxOut = cOut.getContext('2d');
+
+            const cIn = document.createElement('canvas');
+            cIn.width = Canvas2D.width;
+            cIn.height = Canvas2D.height;
+            const ctxIn = cIn.getContext('2d');
+
+            ctxOut.fillStyle = '#ffffff';
+            ctxOut.fillRect(0, 0, cOut.width, cOut.height);
+            ctxIn.fillStyle = '#ffffff';
+            ctxIn.fillRect(0, 0, cIn.width, cIn.height);
+
+            Canvas2D.drawGuide(ctxOut);
+            Canvas2D.drawGuide(ctxIn);
+
+            lOut.forEach(l => Canvas2D.drawLayer(ctxOut, l));
+            lIn.forEach(l => Canvas2D.drawLayer(ctxIn, l));
+
+            return {
+                dataOut: cOut.toDataURL('image/jpeg', 0.8),
+                dataIn: cIn.toDataURL('image/jpeg', 0.8)
             };
+        }
 
-            try {
-                localStorage.setItem(`card_proj_${name}`, JSON.stringify(data));
-                alert(`Project "${name}" saved to Browser Storage!`);
-            } catch (e) {
-                alert("Save failed (Storage Full?): " + e.message);
-            }
-        };
-
-        const btnNew = document.getElementById('btn-new-card');
-        btnNew.onclick = () => {
-            const isEmpty = STATE.layers.outside.length === 0 && STATE.layers.inside.length === 0;
-            if (!isEmpty && !confirm("Start new card? Unsaved changes will be lost.")) return;
-
-            STATE.layers.outside = [];
-            STATE.layers.inside = [];
-            STATE.selectedElement = null;
-            Canvas2D.render();
-        };
-
-        const btnCatalog = document.getElementById('btn-load-project');
-        btnCatalog.innerText = "Load Card";
-
-        btnCatalog.onclick = () => {
-            // Create UI Overlay
-            const overlay = document.createElement('div');
-            overlay.style.cssText = "position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); z-index:10000; display:flex; flex-direction:column; padding:40px; color:white; font-family:sans-serif;";
-
-            const header = document.createElement('div');
-            header.innerHTML = "<h2>Saved Cards Catalog</h2><p>Select a card to load:</p>";
-            overlay.appendChild(header);
-
-
-
-            const grid = document.createElement('div');
-            grid.style.cssText = "display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:20px; overflow-y:auto; padding:20px 0;";
-            overlay.appendChild(grid);
-
-            // Find Projects
-            const keys = [];
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key.startsWith('card_proj_')) keys.push(key);
-            }
-
-            if (keys.length === 0) {
-                grid.innerHTML = "<div>No saved projects found. Save one first!</div>";
-            }
-
-            keys.forEach(key => {
-                const projName = key.replace('card_proj_', '');
-                const raw = localStorage.getItem(key);
-                let meta = {};
-                try { meta = JSON.parse(raw); } catch (e) { }
-
-                const cardir = document.createElement('div');
-                cardir.style.cssText = "background:#333; border:1px solid #555; border-radius:8px; padding:15px; cursor:pointer; transition:0.2s;";
-                cardir.innerHTML = `
-                    <div style="font-weight:bold; font-size:1.1rem; margin-bottom:5px;">${projName}</div>
-                    <div style="font-size:0.8rem; color:#aaa;">${new Date(meta.date || 0).toLocaleDateString()}</div>
-                `;
-                cardir.onmouseover = () => cardir.style.background = '#444';
-                cardir.onmouseout = () => cardir.style.background = '#333';
-
-                cardir.onclick = async () => {
-                    const isEmpty = STATE.layers.outside.length === 0 && STATE.layers.inside.length === 0;
-                    if (!isEmpty && !confirm(`Load "${projName}"? Unsaved changes will be lost.`)) return;
-
-                    try {
-                        const data = JSON.parse(localStorage.getItem(key));
-                        // Rebuild state
-                        STATE.layers.outside = await hydrateLayers(data.outside || []);
-                        STATE.layers.inside = await hydrateLayers(data.inside || []);
-
-                        STATE.selectedElement = null;
-                        Canvas2D.render();
-                        document.body.removeChild(overlay);
-                    } catch (e) {
-                        alert("Failed to load project: " + e.message);
-                    }
-                };
-
-                // Delete Button
-                const delBtn = document.createElement('button');
-                delBtn.innerText = "×";
-                delBtn.style.cssText = "float:right; background:transparent; border:none; color:#f55; font-size:1.4rem; cursor:pointer; margin-top:-5px;";
-                delBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    if (confirm(`Delete "${projName}"?`)) {
-                        localStorage.removeItem(key);
-                        cardir.remove();
-                    }
-                };
-                cardir.insertBefore(delBtn, cardir.firstChild);
-
-                grid.appendChild(cardir);
-            });
-
-            const closeBtn = document.createElement('button');
-            closeBtn.innerText = "Close Catalog";
-            closeBtn.className = 'primary';
-            closeBtn.style.cssText = "margin-top:auto; align-self:center; padding:10px 30px;";
-            closeBtn.onclick = () => document.body.removeChild(overlay);
-            overlay.appendChild(closeBtn);
-
-            document.body.appendChild(overlay);
-        };
-
-        document.getElementById('btn-export-html').onclick = () => {
-            if (!confirm("This will download the card as a standalone HTML file which can be opened in any web browser.\n\nDo you want to continue?")) return;
-            // Generate Texture Data URIs
-            const dataOut = canvasOutside.toDataURL('image/jpeg', 0.8);
-            const dataIn = canvasInside.toDataURL('image/jpeg', 0.8);
-
-            // Minimal Viewer HTML
-            const html = `<!DOCTYPE html>
+        function getViewerHTML(dataOut, dataIn) {
+            return `<!DOCTYPE html>
 <html>
 <head>
     <title>You've received a card!</title>
@@ -1645,12 +1568,16 @@
     const matOut = new THREE.MeshBasicMaterial({map:texOut, side:THREE.FrontSide});
     const matIn = new THREE.MeshBasicMaterial({map:texIn, side:THREE.FrontSide});
 
+    const cardWrapper = new THREE.Group();
+    scene.add(cardWrapper);
+
     const leftGroup = new THREE.Group();
     const rightGroup = new THREE.Group();
     // Front wing (Left) sits on top of Back wing (Right)
     leftGroup.position.z = THICKNESS * 2; 
 
-    scene.add(leftGroup); scene.add(rightGroup);
+    cardWrapper.add(leftGroup);
+    cardWrapper.add(rightGroup);
     
     // Helper
     function setUVs(geo, min, max) {
@@ -1695,7 +1622,8 @@
     let isDragging = false;
     document.addEventListener('mousedown', () => isDragging = false);
     document.addEventListener('mousemove', () => isDragging = true);
-    document.addEventListener('mouseup', () => {
+    document.addEventListener('mouseup', (e) => {
+        if (e.target.closest && e.target.closest('.controls')) return;
         if (!isDragging) {
              targetAngle = (targetAngle === CLOSED_ANGLE) ? OPEN_ANGLE : CLOSED_ANGLE;
         }
@@ -1737,15 +1665,242 @@
         camera.position.z = -safeZ;
     };
 
+    let isLandscape = false;
+    document.getElementById('btn-rotate').onclick = () => {
+        isLandscape = !isLandscape;
+        // Rotate Z to lay on side
+        cardWrapper.rotation.z = isLandscape ? -Math.PI / 2 : 0;
+    };
+
 <\/script>
 <div class="controls">
     <button id="btn-open">Open</button>
     <button id="btn-close">Close</button>
     <button id="btn-front">Front</button>
     <button id="btn-back">Back</button>
+    <button id="btn-rotate">Rotate</button>
 </div>
 </body>
 </html>`;
+        }
+
+        document.getElementById('btn-save-project').onclick = () => {
+            // Create UI Overlay for Save
+            const overlay = document.createElement('div');
+            overlay.style.cssText = "position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); z-index:10000; display:flex; align-items:center; justify-content:center; font-family:sans-serif;";
+
+            const box = document.createElement('div');
+            box.style.cssText = "background:#333; padding:30px; border-radius:12px; border:1px solid #555; color:white; width:300px; display:flex; flex-direction:column; gap:15px; box-shadow:0 10px 30px rgba(0,0,0,0.5);";
+
+            box.innerHTML = `
+                <h3 style="margin:0; font-size:1.2rem;">Save Card</h3>
+                <label style="font-size:0.9rem; color:#ccc;">Card Name:</label>
+                <input type="text" id="save-card-name" value="My Card" style="padding:10px; border-radius:6px; border:1px solid #555; background:#222; color:white;">
+                <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
+                    <button id="btn-cancel-save" style="padding:8px 16px; background:transparent; border:1px solid #555; color:#ccc; border-radius:6px; cursor:pointer;">Cancel</button>
+                    <button id="btn-confirm-save" style="padding:8px 16px; background:var(--accent-color); border:none; color:white; border-radius:6px; cursor:pointer; font-weight:bold;">Save</button>
+                </div>
+            `;
+
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+
+            const input = box.querySelector('#save-card-name');
+            input.focus();
+            input.select();
+
+            const close = () => document.body.removeChild(overlay);
+
+            box.querySelector('#btn-cancel-save').onclick = close;
+
+            box.querySelector('#btn-confirm-save').onclick = () => {
+                const name = input.value.trim() || "Untitled Card";
+
+                const data = {
+                    version: 1,
+                    date: Date.now(),
+                    outside: STATE.layers.outside.map(l => ({ ...l, imgElement: null })),
+                    inside: STATE.layers.inside.map(l => ({ ...l, imgElement: null }))
+                };
+
+                try {
+                    localStorage.setItem(`card_proj_${name}`, JSON.stringify(data));
+                    // Simple toast instead of alert
+                    const toast = document.createElement('div');
+                    toast.innerText = `Saved "${name}"`;
+                    toast.style.cssText = "position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--accent-color); color:white; padding:10px 20px; border-radius:20px; font-family:sans-serif; z-index:10001; box-shadow:0 4px 12px rgba(0,0,0,0.5);";
+                    document.body.appendChild(toast);
+                    setTimeout(() => document.body.removeChild(toast), 3000);
+
+                    close();
+                } catch (e) {
+                    alert("Save failed (Storage Full?): " + e.message);
+                }
+            };
+
+            // Enter key support
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') box.querySelector('#btn-confirm-save').click();
+                if (e.key === 'Escape') close();
+            };
+        };
+
+        const btnNew = document.getElementById('btn-new-card');
+        btnNew.onclick = () => {
+            const isEmpty = STATE.layers.outside.length === 0 && STATE.layers.inside.length === 0;
+            // Remove native confirm
+            // if (!isEmpty && !confirm("Start new card? Unsaved changes will be lost.")) return;
+
+            STATE.layers.outside = [];
+            STATE.layers.inside = [];
+            STATE.selectedElement = null;
+            Canvas2D.render();
+
+            // Simple toast
+            const toast = document.createElement('div');
+            toast.innerText = "New Card Started";
+            toast.style.cssText = "position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--accent-color); color:white; padding:10px 20px; border-radius:20px; font-family:sans-serif; z-index:10001;";
+            document.body.appendChild(toast);
+            setTimeout(() => document.body.removeChild(toast), 2000);
+        };
+
+        const btnCatalog = document.getElementById('btn-load-project');
+        btnCatalog.innerText = "Load Card";
+
+        btnCatalog.onclick = () => {
+            // Create UI Overlay
+            const overlay = document.createElement('div');
+            overlay.style.cssText = "position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); z-index:10000; display:flex; flex-direction:column; padding:40px; color:white; font-family:sans-serif;";
+
+            const header = document.createElement('div');
+            header.innerHTML = "<h2>Saved Cards Catalog</h2><p>Select a card to load (Unsaved changes will be lost):</p>";
+            overlay.appendChild(header);
+
+
+
+            const grid = document.createElement('div');
+            grid.style.cssText = "display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:20px; overflow-y:auto; padding:20px 0;";
+            overlay.appendChild(grid);
+
+            // Find Projects
+            const keys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key.startsWith('card_proj_')) keys.push(key);
+            }
+
+            if (keys.length === 0) {
+                grid.innerHTML = "<div>No saved projects found. Save one first!</div>";
+            }
+
+            keys.forEach(key => {
+                const projName = key.replace('card_proj_', '');
+                const raw = localStorage.getItem(key);
+                let meta = {};
+                try { meta = JSON.parse(raw); } catch (e) { }
+
+                const cardir = document.createElement('div');
+                cardir.style.cssText = "background:#333; border:1px solid #555; border-radius:8px; padding:15px; cursor:pointer; transition:0.2s;";
+                cardir.innerHTML = `
+                    <div style="font-weight:bold; font-size:1.1rem; margin-bottom:5px;">${projName}</div>
+                    <div style="font-size:0.8rem; color:#aaa;">${new Date(meta.date || 0).toLocaleDateString()}</div>
+                `;
+                cardir.onmouseover = () => cardir.style.background = '#444';
+                cardir.onmouseout = () => cardir.style.background = '#333';
+
+                cardir.onclick = async () => {
+                    const isEmpty = STATE.layers.outside.length === 0 && STATE.layers.inside.length === 0;
+                    // Skip confirm to avoid browser blocking issues
+                    // if (!isEmpty && !confirm(`Load "${projName}"? Unsaved changes will be lost.`)) return;
+
+                    try {
+                        const data = JSON.parse(localStorage.getItem(key));
+                        // Rebuild state
+                        STATE.layers.outside = await hydrateLayers(data.outside || []);
+                        STATE.layers.inside = await hydrateLayers(data.inside || []);
+
+                        STATE.selectedElement = null;
+                        Canvas2D.render();
+                        document.body.removeChild(overlay);
+                    } catch (e) {
+                        alert("Failed to load project: " + e.message);
+                    }
+                };
+
+                // View Button
+                const viewBtn = document.createElement('button');
+                viewBtn.innerText = "👁️";
+                viewBtn.title = "View Card";
+                viewBtn.style.cssText = "float:right; background:transparent; border:none; color:#ddd; font-size:1.4rem; cursor:pointer; margin-top:-5px; margin-right: 10px; transition: color 0.2s;";
+                viewBtn.onmouseover = () => viewBtn.style.color = 'white';
+                viewBtn.onmouseout = () => viewBtn.style.color = '#ddd';
+
+                viewBtn.onclick = async (e) => {
+                    e.stopPropagation(); // Don't load the card
+                    viewBtn.disabled = true;
+                    viewBtn.innerText = "⌛";
+                    try {
+                        const data = JSON.parse(localStorage.getItem(key));
+                        const { dataOut, dataIn } = await renderCardToDataUrls(data.outside || [], data.inside || []);
+                        const html = getViewerHTML(dataOut, dataIn);
+                        const blob = new Blob([html], { type: 'text/html' });
+                        const url = URL.createObjectURL(blob);
+                        window.open(url, '_blank');
+                    } catch (err) {
+                        alert("Failed to view: " + err.message);
+                    } finally {
+                        viewBtn.disabled = false;
+                        viewBtn.innerText = "👁️";
+                    }
+                };
+                cardir.insertBefore(viewBtn, cardir.firstChild);
+
+                // Delete Button
+                const delBtn = document.createElement('button');
+                delBtn.innerText = "×";
+                delBtn.title = "Delete Card";
+                delBtn.style.cssText = "float:right; background:transparent; border:none; color:#f55; font-size:1.4rem; cursor:pointer; margin-top:-5px;";
+                delBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (delBtn.innerText === "×") {
+                        delBtn.innerText = "Sure?";
+                        delBtn.style.fontSize = "0.9rem";
+                        delBtn.style.fontWeight = "bold";
+                        setTimeout(() => {
+                            if (cardir.parentElement) { // Check if still exists
+                                delBtn.innerText = "×";
+                                delBtn.style.fontSize = "1.4rem";
+                            }
+                        }, 3000);
+                    } else {
+                        localStorage.removeItem(key);
+                        cardir.remove();
+                    }
+                };
+                cardir.insertBefore(delBtn, cardir.firstChild);
+
+                grid.appendChild(cardir);
+            });
+
+            const closeBtn = document.createElement('button');
+            closeBtn.innerText = "Close Catalog";
+            closeBtn.className = 'primary';
+            closeBtn.style.cssText = "margin-top:auto; align-self:center; padding:10px 30px;";
+            closeBtn.onclick = () => document.body.removeChild(overlay);
+            overlay.appendChild(closeBtn);
+
+            document.body.appendChild(overlay);
+        };
+
+        document.getElementById('btn-export-html').onclick = () => {
+            // Remove confirm to avoid blocking
+            // if (!confirm("This will download the card as a standalone HTML file which can be opened in any web browser.\n\nDo you want to continue?")) return;
+            // Generate Texture Data URIs
+            const dataOut = canvasOutside.toDataURL('image/jpeg', 0.8);
+            const dataIn = canvasInside.toDataURL('image/jpeg', 0.8);
+
+            // Minimal Viewer HTML
+            const html = getViewerHTML(dataOut, dataIn);
 
             const blob = new Blob([html], { type: 'text/html' });
             const a = document.createElement('a');
@@ -1955,13 +2110,20 @@
                     delBtn.style.cssText = "cursor: pointer; margin-left: 10px; background: transparent; border: none; font-size: 1.2rem;";
                     delBtn.onclick = async (e) => {
                         e.stopPropagation();
-                        if (confirm(`Delete ${item.key}?`)) {
+
+                        if (delBtn.innerText === '🗑️') {
+                            delBtn.innerText = 'Sure?';
+                            setTimeout(() => {
+                                if (itemEl.parentElement) delBtn.innerText = '🗑️';
+                            }, 3000);
+                        } else {
                             delBtn.innerText = "⏳";
                             try {
                                 await remove({ key: item.key, options: { accessLevel: 'guest' } });
                                 itemEl.remove();
                             } catch (err) {
-                                alert("Failed to delete: " + err.message);
+                                // alert("Failed to delete: " + err.message);
+                                console.error(err);
                                 delBtn.innerText = '🗑️';
                             }
                         }
@@ -2061,10 +2223,15 @@
 
     const leftGroup = new THREE.Group();
     const rightGroup = new THREE.Group();
+    const cardWrapper = new THREE.Group();
+    scene.add(cardWrapper);
+    cardWrapper.add(leftGroup);
+    cardWrapper.add(rightGroup);
+
     // Front wing (Left) sits on top of Back wing (Right)
     leftGroup.position.z = THICKNESS * 2; 
 
-    scene.add(leftGroup); scene.add(rightGroup);
+    // scene.add(leftGroup); scene.add(rightGroup);
     
     // Helper
     function setUVs(geo, min, max) {
@@ -2109,7 +2276,8 @@
     let isDragging = false;
     document.addEventListener('mousedown', () => isDragging = false);
     document.addEventListener('mousemove', () => isDragging = true);
-    document.addEventListener('mouseup', () => {
+    document.addEventListener('mouseup', (e) => {
+        if (e.target.closest && e.target.closest('.controls')) return;
         if (!isDragging) {
              targetAngle = (targetAngle === CLOSED_ANGLE) ? OPEN_ANGLE : CLOSED_ANGLE;
         }
@@ -2148,12 +2316,19 @@
         const safeZ = Math.max(12, fitH, fitW);
         camera.position.z = -safeZ;
     };
+
+    let isLandscape = false;
+    document.getElementById('btn-rotate').onclick = () => {
+        isLandscape = !isLandscape;
+        cardWrapper.rotation.z = isLandscape ? -Math.PI / 2 : 0;
+    };
 <\/script>
 <div class="controls">
     <button id="btn-open">Open</button>
     <button id="btn-close">Close</button>
     <button id="btn-front">Front</button>
     <button id="btn-back">Back</button>
+    <button id="btn-rotate">Rotate</button>
 </div>
 </body>
 </html>`;
