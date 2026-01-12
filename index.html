@@ -2300,9 +2300,22 @@
     <style>
         body{ margin:0; overflow:hidden; background:#222; font-family: sans-serif; }
         #error-log { position: fixed; top: 10px; left: 10px; color: #f55; background: rgba(0,0,0,0.8); padding: 10px; display: none; z-index: 999; pointer-events: none; }
-        .controls { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100; display: flex; gap: 10px; }
-        .controls button { background: rgba(0,0,0,0.6); color: white; border: 1px solid rgba(255,255,255,0.4); padding: 8px 16px; border-radius: 20px; cursor: pointer; font-family: sans-serif; font-size: 14px; transition: background 0.2s; }
+        .controls { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; width: 95%; pointer-events: none; }
+        .controls button { pointer-events: auto; background: rgba(0,0,0,0.6); color: white; border: 1px solid rgba(255,255,255,0.4); padding: 8px 16px; border-radius: 20px; cursor: pointer; font-family: sans-serif; font-size: 14px; transition: background 0.2s; white-space: nowrap; }
         .controls button:hover { background: rgba(255,255,255,0.2); }
+        .card-maker-btn { background: rgba(100, 108, 255, 0.6) !important; border-color: rgba(100, 108, 255, 0.8) !important; color: white !important; font-weight: bold; text-decoration: none; }
+        
+        @media (min-resolution: 2dppx), (max-width: 600px) {
+            .controls { bottom: 30px; gap: 8px; width: 98%; }
+            .controls button { 
+                padding: 16px 4px; 
+                font-size: 16px; 
+                border-width: 2px; 
+                flex: 1 1 0; /* Distribute space equally */
+                min-width: 0; /* Allow shrinking if needed */
+            }
+            .card-maker-btn { flex: 0 0 auto !important; width: auto; padding-left: 15px !important; padding-right: 15px !important; }
+        }
     </style>
     <script>
         window.onerror = function(msg, url, line, col, error) {
@@ -2568,6 +2581,7 @@
 <\/script>
 
 <div class="controls">
+    <button onclick="window.open('https://prod.d11b9xr1x72gdk.amplifyapp.com/','_blank')" class="card-maker-btn">Card Maker</button>
     <button onclick="window.btnFront()">Front</button>
     <button onclick="window.btnInside()">Inside</button>
     <button onclick="window.btnBack()">Back</button>
