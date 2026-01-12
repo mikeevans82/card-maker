@@ -1182,8 +1182,9 @@
         let initialElemPos = { x: 0, y: 0 };
 
         function onPointerMove(event) {
-            pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-            pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
+            const rect = renderer.domElement.getBoundingClientRect();
+            pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            pointer.y = - ((event.clientY - rect.top) / rect.height) * 2 + 1;
 
             if (isDragging && STATE.selectedElement && STATE.viewMode !== 'orbit') {
                 if (!STATE.selectedElement.locked) {
@@ -1200,7 +1201,7 @@
             // Offset (-250) compensates for visual misalignment where click target 
             // is effectively shifted right relative to visual position.
 
-            cx -= 250;
+            // cx -= 250; // Removed offset that was causing drag limit issues
 
 
             return { x: cx, y: cy };
@@ -1223,6 +1224,12 @@
             if (event.target !== renderer.domElement) return;
 
             if (STATE.viewMode === 'orbit') return;
+
+            // Update pointer for exact click position
+            const rect = renderer.domElement.getBoundingClientRect();
+            pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            pointer.y = - ((event.clientY - rect.top) / rect.height) * 2 + 1;
+
 
             raycaster.setFromCamera(pointer, camera);
             const targets = [];
