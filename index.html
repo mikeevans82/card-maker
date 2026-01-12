@@ -519,9 +519,11 @@
                     border: 2px solid var(--accent-color);
                     box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
                     /* Dim outside */
-                    width: 80%;
-                    aspect-ratio: 1.294;
-                    /* 11 / 8.5 for landscape */
+                    width: 90%;
+                    /* In portrait lock, we use inverted aspect ratio (0.77 instead of 1.29) 
+                       so the box is tall on screen -> wide physically when rotated */
+                    aspect-ratio: 0.772;
+                    /* 8.5 / 11 */
                     border-radius: 8px;
                     position: relative;
                 }
@@ -531,9 +533,11 @@
                     position: absolute;
                     top: 50%;
                     left: 50%;
-                    transform: translate(-50%, -50%);
+                    /* Rotate text 90deg so it looks upright when phone is held landscape (Top-Left) */
+                    transform: translate(-50%, -50%) rotate(90deg);
                     color: rgba(255, 255, 255, 0.5);
                     font-size: 1.2rem;
+                    white-space: nowrap;
                 }
 
                 .camera-controls {
@@ -1979,9 +1983,14 @@
         const previewImg = document.getElementById('preview-img');
 
         // Check support
+        // We always show the button now so users can see it, but we'll show an error if clicked and not supported.
+        document.getElementById('btn-camera-scan').classList.remove('hidden');
+
+        /*
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             document.getElementById('btn-camera-scan').classList.remove('hidden');
         }
+        */
 
         document.getElementById('btn-camera-scan').onclick = () => {
             STATE.camera.step = 'outside';
@@ -1990,6 +1999,19 @@
 
         async function startCamera() {
             try {
+                // Attempt to lock screen orientation to portrait
+                // This prevents UI buttons from disappearing when rotating phone
+                if (screen.orientation && screen.orientation.lock) {
+                    try {
+                        if (document.documentElement.requestFullscreen) {
+                            await document.documentElement.requestFullscreen();
+                        }
+                        await screen.orientation.lock('portrait');
+                    } catch (e) {
+                        console.warn("Orientation lock/Fullscreen failed:", e);
+                    }
+                }
+
                 if (STATE.camera.stream) stopCamera();
 
                 const constraints = {
@@ -2000,6 +2022,10 @@
                     },
                     audio: false
                 };
+
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error("Camera API not available. This usually happens when accessing via HTTP simply by IP. Please use HTTPS or localhost, or check 'chrome://flags/#unsafely-treat-insecure-origin-as-secure' to enable testing.");
+                }
 
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 STATE.camera.stream = stream;
@@ -2013,11 +2039,19 @@
 
             } catch (err) {
                 console.error("Camera Error:", err);
-                showCustomAlert("Could not access camera. Please allow permissions.", "Error");
+                showCustomAlert("Camera Error: " + err.message, "Error");
             }
         }
 
         function stopCamera() {
+            // Unlock orientation and exit fullscreen
+            if (screen.orientation && screen.orientation.unlock) {
+                try { screen.orientation.unlock(); } catch (e) { }
+            }
+            if (document.fullscreenElement) {
+                try { document.exitFullscreen(); } catch (e) { }
+            }
+
             if (STATE.camera.stream) {
                 STATE.camera.stream.getTracks().forEach(t => t.stop());
                 STATE.camera.stream = null;
