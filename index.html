@@ -1349,6 +1349,21 @@
             });
         });
 
+        function updateContentToolsState(mode) {
+            // Only disable content addition tools, keep Scan/Camera enabled always
+            const ids = ['btn-add-text', 'btn-add-shape', 'btn-add-sticker'];
+            const disabled = (mode === 'orbit');
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.disabled = disabled;
+                    el.style.opacity = disabled ? '0.3' : '1';
+                    el.style.pointerEvents = disabled ? 'none' : 'auto';
+                    el.style.cursor = disabled ? 'not-allowed' : 'pointer';
+                }
+            });
+        }
+
         function setMode(mode) {
             STATE.viewMode = mode;
             document.querySelectorAll('.view-btn').forEach(b => {
@@ -1356,6 +1371,8 @@
             });
             const activeBtn = document.querySelector(`.view-btn[data-view="${mode}"]`);
             if (activeBtn) activeBtn.classList.add('active');
+
+            updateContentToolsState(mode);
 
             if (mode === 'orbit') {
                 controls.enabled = true;
@@ -3556,6 +3573,7 @@
         // Add timeout to ensure fonts/images are ready
         setTimeout(() => {
             updateFold(0.2); // 20% Open
+            updateContentToolsState(STATE.viewMode); // Disable tools if in orbit
             Canvas2D.render();
 
             // Initial Camera: Match "Front" view logic but keep angle
