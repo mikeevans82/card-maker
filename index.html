@@ -8,7 +8,9 @@
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400;700&family=Great+Vibes&family=Inter:wght@300;400;500;600;700&family=Lobster&family=Merriweather:wght@300;400;700&family=Open+Sans:wght@400;600;700&family=Pacifico&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap"
+        rel="stylesheet">
 
     <!-- Three.js & Dependencies via CDN -->
     <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
@@ -1502,7 +1504,7 @@
 
                 // Approx dimensions
                 const ctx = isInside ? Canvas2D.ctxIn : Canvas2D.ctxOut;
-                ctx.font = `60px Inter`;
+                ctx.font = `${newItem.bold ? 'bold ' : ''}${newItem.fontSize}px ${newItem.fontFamily}`;
                 const m = ctx.measureText(newItem.text);
                 newItem.width = m.width;
                 newItem.height = 60;
@@ -1778,6 +1780,17 @@
         // For a robust system, we would use individual files. 
         // Here we slice the sheet on the fly to Data URIs.
 
+        const FONTS = [
+            'Inter',
+            'Open Sans',
+            'Playfair Display',
+            'Merriweather',
+            'Great Vibes',
+            'Dancing Script',
+            'Lobster',
+            'Pacifico'
+        ];
+
         const STICKER_COORDS = [
             { name: 'Cat', x: 29, y: 253, w: 214, h: 231 },
             { name: 'Unicorn', x: 240, y: 240, w: 190, h: 247 },
@@ -1846,9 +1859,37 @@
                     item.width = ctx.measureText(v).width;
                     Canvas2D.render();
                 }));
+                content.appendChild(createPropSelect('Font', item.fontFamily || 'Inter', FONTS, v => {
+                    item.fontFamily = v;
+                    const ctx = Canvas2D.ctxOut;
+                    ctx.font = `${item.bold ? 'bold ' : ''}${item.italic ? 'italic ' : ''}${item.fontSize}px ${item.fontFamily}`;
+                    item.width = ctx.measureText(item.text).width;
+                    Canvas2D.render();
+                }));
+
                 content.appendChild(createPropInput('Font Size', item.fontSize, v => {
                     item.fontSize = parseInt(v);
                     item.height = parseInt(v); // approx
+                    const ctx = Canvas2D.ctxOut;
+                    ctx.font = `${item.bold ? 'bold ' : ''}${item.italic ? 'italic ' : ''}${item.fontSize}px ${item.fontFamily}`;
+                    item.width = ctx.measureText(item.text).width;
+                    Canvas2D.render();
+                }));
+
+                content.appendChild(createPropCheckbox('Bold', item.bold || false, v => {
+                    item.bold = v;
+                    const ctx = Canvas2D.ctxOut;
+                    ctx.font = `${item.bold ? 'bold ' : ''}${item.italic ? 'italic ' : ''}${item.fontSize}px ${item.fontFamily}`;
+                    item.width = ctx.measureText(item.text).width;
+                    Canvas2D.render();
+                }));
+
+                content.appendChild(createPropCheckbox('Italic', item.italic || false, v => {
+                    item.italic = v;
+                    // Recalc logic duplicated for safety
+                    const ctx = Canvas2D.ctxOut;
+                    ctx.font = `${item.bold ? 'bold ' : ''}${item.italic ? 'italic ' : ''}${item.fontSize}px ${item.fontFamily}`;
+                    item.width = ctx.measureText(item.text).width;
                     Canvas2D.render();
                 }));
                 content.appendChild(createPropColor('Color', item.color, v => { item.color = v; Canvas2D.render(); }));
@@ -1891,6 +1932,15 @@
             div.className = 'control-group';
             div.innerHTML = `<label>${label}</label><input type="color" value="${val}" style="width:100%; height:30px;">`;
             div.querySelector('input').oninput = (e) => onChange(e.target.value);
+            return div;
+        }
+
+        function createPropSelect(label, val, options, onChange) {
+            const div = document.createElement('div');
+            div.className = 'control-group';
+            let opts = options.map(o => `<option value="${o}" ${o === val ? 'selected' : ''}>${o}</option>`).join('');
+            div.innerHTML = `<label>${label}</label><select>${opts}</select>`;
+            div.querySelector('select').onchange = (e) => onChange(e.target.value);
             return div;
         }
 
