@@ -264,6 +264,28 @@
             border: 1px solid var(--panel-border);
         }
 
+        #btn-brightness-toggle {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 20;
+            background: var(--panel-bg);
+            backdrop-filter: blur(var(--glass-blur));
+            border: 1px solid var(--panel-border);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.9rem;
+        }
+
+        #btn-brightness-toggle:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
         input[type="range"] {
             accent-color: var(--accent-color);
         }
@@ -442,6 +464,7 @@
     <div id="mobile-backdrop"></div>
 
     <div id="app">
+        <button id="btn-brightness-toggle">☀️ Full Bright: OFF</button>
         <!-- Left Sidebar: Assets & Tools -->
         <div class="panel">
             <h2>Card Creator</h2>
@@ -711,6 +734,7 @@
             selectedElement: null,
             selectedPanel: null, // 'front', 'back', 'inside-left', 'inside-right'
             db: null, // IndexedDB
+            fullBright: false,
 
             // Canvas Data Models
             // Each item: { id, type: 'text'|'image'|'shape', x, y, width, height, rotation, ...props }
@@ -769,10 +793,10 @@
         controls.dampingFactor = 0.05;
 
         // Lights
-        const ambLight = new THREE.AmbientLight(0xffffff, 0.6);
+        const ambLight = new THREE.AmbientLight(0xffffff, 1.5); // Very High base brightness
         scene.add(ambLight);
 
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.6); // Subtle gradients
         dirLight.position.set(5, 10, 7);
         dirLight.castShadow = true;
         scene.add(dirLight);
@@ -807,8 +831,13 @@
         window.texInside = texInside;
 
         // Use Basic Material with DoubleSide to ensure visibility and Raycast hits
-        const matOutside = new THREE.MeshBasicMaterial({ map: texOutside, side: THREE.DoubleSide });
-        const matInside = new THREE.MeshBasicMaterial({ map: texInside, side: THREE.DoubleSide });
+        // Use Standard Material for reacting to lights
+        const matOutside = new THREE.MeshStandardMaterial({
+            map: texOutside, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.0
+        });
+        const matInside = new THREE.MeshStandardMaterial({
+            map: texInside, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.0
+        });
 
         // Groups
         const mainCardGroup = new THREE.Group();
@@ -1474,6 +1503,65 @@
             }, 100);
         }
         // document.getElementById('btn-add-rect').onclick = addRect; // Removed
+
+        // Mobile Toggle Logic
+        document.getElementById('btn-toggle-left').addEventListener('click', () => {
+            document.querySelector('.panel').classList.toggle('active');
+            document.getElementById('mobile-backdrop').classList.toggle('active');
+        });
+
+        document.getElementById('btn-toggle-right').addEventListener('click', () => {
+            document.getElementById('prop-panel').classList.toggle('active');
+            document.getElementById('mobile-backdrop').classList.toggle('active');
+        });
+
+        document.getElementById('mobile-backdrop').addEventListener('click', () => {
+            document.querySelector('.panel').classList.remove('active');
+            document.getElementById('prop-panel').classList.remove('active');
+            document.getElementById('mobile-backdrop').classList.remove('active');
+        });
+
+        // Brightness Toggle
+        document.getElementById('btn-brightness-toggle').onclick = () => {
+            STATE.fullBright = !STATE.fullBright;
+            const btn = document.getElementById('btn-brightness-toggle');
+
+            if (STATE.fullBright) {
+                btn.innerText = "☀️ Full Bright: ON";
+                btn.style.background = "rgba(255, 255, 255, 0.3)";
+
+                // Switch to "Full Bright" look (Emissive Map)
+                // Use the texture as emissive map so it glows with its own colors
+                matOutside.emissiveMap = matOutside.map;
+                matOutside.emissive.setHex(0xffffff);
+                matOutside.emissiveIntensity = 1.0;
+                matOutside.color.setHex(0x000000); // Disable diffuse lighting
+                matOutside.needsUpdate = true;
+
+                matInside.emissiveMap = matInside.map;
+                matInside.emissive.setHex(0xffffff);
+                matInside.emissiveIntensity = 1.0;
+                matInside.color.setHex(0x000000); // Disable diffuse lighting
+                matInside.needsUpdate = true;
+
+            } else {
+                btn.innerText = "☀️ Full Bright: OFF";
+                btn.style.background = ""; // Reset
+
+                // Revert to "Lit" look
+                matOutside.emissiveMap = null;
+                matOutside.emissive.setHex(0x000000);
+                matOutside.emissiveIntensity = 0.0;
+                matOutside.color.setHex(0xffffff); // Restore diffuse
+                matOutside.needsUpdate = true;
+
+                matInside.emissiveMap = null;
+                matInside.emissive.setHex(0x000000);
+                matInside.emissiveIntensity = 0.0;
+                matInside.color.setHex(0xffffff); // Restore diffuse
+                matInside.needsUpdate = true;
+            }
+        };
 
         // --- Shape UI ---
         document.getElementById('btn-add-shape').onclick = () => {
@@ -2211,8 +2299,8 @@
         window.addEventListener('resize', onWindowResize);
         
         // --- Scene Setup ---
-        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-        const dl = new THREE.DirectionalLight(0xffffff, 0.8); dl.position.set(5,10,7); scene.add(dl);
+        scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+        const dl = new THREE.DirectionalLight(0xffffff, 0.6); dl.position.set(5,10,7); scene.add(dl);
 
         // Geometry
         const w=5.5, h=8.5;
@@ -2226,8 +2314,12 @@
         texOut.colorSpace = THREE.SRGBColorSpace;
         texIn.colorSpace = THREE.SRGBColorSpace;
         
-        const matOut = new THREE.MeshBasicMaterial({map:texOut, side:THREE.FrontSide});
-        const matIn = new THREE.MeshBasicMaterial({map:texIn, side:THREE.FrontSide});
+        const matOut = new THREE.MeshStandardMaterial({
+            map:texOut, side:THREE.FrontSide, roughness: 0.6, metalness: 0.0
+        });
+        const matIn = new THREE.MeshStandardMaterial({
+            map:texIn, side:THREE.FrontSide, roughness: 0.6, metalness: 0.0
+        });
 
         // Group Hierarchy
         const cardWrapper = new THREE.Group();
