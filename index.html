@@ -920,8 +920,8 @@
                 look: new THREE.Vector3(P_CENTER_OFFSET, 0, 0)
             },
             'back': {
-                pos: new THREE.Vector3(P_CENTER_OFFSET, 0, -15), // Looking at Closed Back (+X)
-                look: new THREE.Vector3(P_CENTER_OFFSET, 0, 0)
+                pos: new THREE.Vector3(-P_CENTER_OFFSET, 0, 15), // Same X as inside-left, Front Z
+                look: new THREE.Vector3(-P_CENTER_OFFSET, 0, 0)
             },
             'inside-left': {
                 pos: new THREE.Vector3(-P_CENTER_OFFSET, 0, 15),
@@ -1284,7 +1284,11 @@
         function onWindowResize() {
             const { w, h } = updateRendererSize();
 
-            const safeZ = getSafeZ();
+            // Determine context for resize
+            let wFit = 11.0;
+            if (STATE.viewMode === 'front' || STATE.viewMode === 'back') wFit = 5.5;
+
+            const safeZ = getSafeZ(wFit);
             const sign = (camera.position.z >= 0) ? 1 : -1;
 
             // Recalc existing Camera Fit if in orbit mode
@@ -1292,25 +1296,33 @@
                 const angle = (1 - STATE.cardOpen) * Math.PI;
                 updateCameraFit(angle);
             } else {
+                // If we are locked in a view, force recenter
                 const targetPos = camera.position.clone();
                 targetPos.z = safeZ * sign;
-                animateCamera(targetPos, controls.target.clone());
+
+                // If on mobile, auto-center X too in case of drift
+                const targetLook = controls.target.clone();
+                targetLook.x = 0;
+                targetLook.y = 0;
+
+                animateCamera(targetPos, targetLook);
             }
         }
 
-        function getSafeZ() {
+        function getSafeZ(targetWidth = 11.0) {
             const container = document.getElementById('viewport');
             const aspect = container.offsetWidth / container.offsetHeight;
             const vFov = camera.fov * (Math.PI / 180);
 
             // Height fit: Card is 8.5 high. Let's provide some padding (1.05x).
-            // Width fit: Card is 11 wide (open). Let's provide padding (1.05x).
+            // Width fit: Card is targetWidth wide. Let's provide padding (1.05x).
 
             const heightFit = (8.5 * 1.05) / Math.tan(vFov / 2);
-            const widthFit = (11.0 * 1.05) / (Math.tan(vFov / 2) * aspect);
-            const sphereDist = (7.0 * 1.05) / Math.sin(vFov / 2); // Approx radius 7
+            const widthFit = (targetWidth * 1.05) / (Math.tan(vFov / 2) * aspect);
 
-            return Math.max(10, heightFit, widthFit, sphereDist) * 0.7;
+            // Lower min distance to 5 for closer mobile views
+            // Multiplier 0.65 brings it much closer, "zooming out less"
+            return Math.max(5, heightFit, widthFit) * 0.65;
         }
 
         // --- View Modes ---
@@ -1373,15 +1385,23 @@
                 // viewPositions['back'] previously had -15. We essentially treat it like Front now regarding camera position.
 
                 let targetPos = t.pos.clone();
-                if (mode === 'back') {
-                    // Override standard back definition to look from Front (+Z)
-                    // because the card is rotating to show its back.
-                    targetPos = viewPositions['front'].pos.clone();
-                    // But we might want to preserve the specific look vector if different? 
-                    // They are same (0,0,0).
+                // Override removed: 'back' view now defined correctly in viewPositions
+
+
+                // Determine target width logic
+                // If Front (0) or Back (Math.PI/180), we show a single panel (5.5)
+                // If Inside, we show full spread (11)
+
+                // Determine target width logic
+                // If Front (0) or Back (Math.PI/180), we show a single panel (5.5)
+                // If Inside Left/Right, we also want closer zoom on that specific panel (5.5)
+
+                let targetWidth = 11.0;
+                if (mode === 'front' || mode === 'back' || mode === 'inside-left' || mode === 'inside-right') {
+                    targetWidth = 5.5;
                 }
 
-                const safeZ = getSafeZ();
+                const safeZ = getSafeZ(targetWidth);
                 // Ensure positive Z since we rotate the card
                 const sign = 1;
                 targetPos.z = safeZ * sign;
@@ -2358,18 +2378,14 @@
             const aspect = w / h;
             const vFov = camera.fov * (Math.PI / 180);
             
-            const PAD = 1.1; 
+            // Match "Front" view logic for initial load
+            const PAD = 1.05; 
             const fitH = (8.5 * PAD) / Math.tan(vFov / 2); 
-            const fitW = (11.0 * PAD) / (Math.tan(vFov / 2) * aspect); 
-            const sphereDist = (7.0 * PAD) / Math.sin(vFov / 2); 
-
-
-
-            // Mobile Z adjustment: Need to be further back generally? 
-            // The fit logic handles aspect ratio. 
-            // But let's ensure we don't clip.
+            // Use 5.5 width (single panel) for initial "Front" look
+            const fitW = (5.5 * PAD) / (Math.tan(vFov / 2) * aspect); 
             
-            const safeZ = Math.max(10, fitH, fitW, sphereDist) * 0.8;
+            // Apply same closer multiplier (0.65)
+            const safeZ = Math.max(5, fitH, fitW) * 0.65;
             camera.position.z = Math.max(safeZ, 5); 
         }
         window.addEventListener('resize', onWindowResize);
@@ -2483,14 +2499,15 @@
              controls.enabled = false;
         }
 
-        function tweenCameraToSafeZ(sign) {
+        function tweenCameraToSafeZ(sign, widthToFit = 11.0) {
              const aspect = window.innerWidth / window.innerHeight;
              const vFov = camera.fov * (Math.PI / 180);
-             const PAD = 1.1;
+             const PAD = 1.05; // Tighter padding (zoom closer)
              const fitH = (8.5 * PAD) / Math.tan(vFov / 2);
-             const fitW = (11.0 * PAD) / (Math.tan(vFov / 2) * aspect);
-             const sphereDist = (7.0 * PAD) / Math.sin(vFov / 2);
-             const safeZ = Math.max(10, fitH, fitW, sphereDist) * 0.8 * sign;
+             const fitW = (widthToFit * PAD) / (Math.tan(vFov / 2) * aspect);
+             // Use 5 instead of 10 as minimum to allow closer zoom on mobile
+             // Multiplier 0.65 brings it much closer
+             const safeZ = Math.max(5, fitH, fitW) * 0.65 * sign; 
              tweenCamera(new THREE.Vector3(0, 0, safeZ), new THREE.Vector3(0, 0, 0));
         }
 
@@ -2551,21 +2568,21 @@
              targetAngle = CLOSED_ANGLE;
              rotationTargetY = 0;
              resetOrientation();
-             tweenCameraToSafeZ(1);
+             tweenCameraToSafeZ(1, 5.5); // Fit single panel
         };
         
         window.btnInside = () => {
              targetAngle = OPEN_ANGLE;
              rotationTargetY = 0;
              resetOrientation();
-             tweenCameraToSafeZ(1);
+             tweenCameraToSafeZ(1, 11.0); // Fit full spread
         };
 
         window.btnBack = () => {
              targetAngle = CLOSED_ANGLE;
              rotationTargetY = Math.PI;
              resetOrientation();
-             tweenCameraToSafeZ(1); 
+             tweenCameraToSafeZ(1, 5.5); // Fit single panel
         };
         
         window.btnRotate = () => {
@@ -3541,10 +3558,14 @@
             updateFold(0.2); // 20% Open
             Canvas2D.render();
 
-            // Initial Camera: Slightly higher than "Front" view
+            // Initial Camera: Match "Front" view logic but keep angle
             if (camera && controls) {
-                // Front view pos is z=15. We want slightly higher -> y positive.
-                camera.position.set(2.75, 5, 15);
+                // Calculate dynamic safe Z for single panel (5.5 width)
+                const safeZ = getSafeZ(5.5);
+
+                // Front view pos is typically (0, 0, safeZ) looking at (0,0,0)
+                // We want slightly higher Y for the "Initial" look, but keeping the Z tight.
+                camera.position.set(2.75, 5, safeZ);
                 controls.target.set(2.75, 0, 0);
                 controls.update();
             }
