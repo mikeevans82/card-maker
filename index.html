@@ -656,7 +656,9 @@
             <div id="props-content">
                 <!-- Dynamic Properties -->
             </div>
-            <button id="btn-delete-element" style="background: #a33; margin-top: 20px;">Delete Element</button>
+            <button id="btn-clone-element" style="background: var(--accent-color); margin-top: 20px;">Clone
+                Element</button>
+            <button id="btn-delete-element" style="background: #a33; margin-top: 10px;">Delete Element</button>
             <button id="btn-close-props" style="margin-top: 10px;">Close</button>
         </div>
     </div>
@@ -1639,6 +1641,33 @@
         tabUpload.onclick = () => {
             tabUpload.classList.add('active'); tabGeneral.classList.remove('active');
             contentUpload.classList.remove('hidden'); contentGeneral.classList.add('hidden');
+        };
+
+        // Clone Element Logic
+        document.getElementById('btn-clone-element').onclick = () => {
+            if (!STATE.selectedElement) return;
+
+            const original = STATE.selectedElement;
+            const isInside = STATE.layers.inside.includes(original);
+            const list = isInside ? STATE.layers.inside : STATE.layers.outside;
+
+            // Deep clone the object
+            const clone = JSON.parse(JSON.stringify(original));
+            clone.id = Date.now(); // New ID
+            clone.x += 40; // Offset slighty so user sees it
+            clone.y += 40;
+
+            // If it's an image/sticker, we need to re-assign the imgElement reference
+            // or re-load it if it was lost in serialization.
+            if (original.type === 'image' && original.imgElement) {
+                clone.imgElement = original.imgElement;
+            }
+
+            list.push(clone);
+            STATE.selectedElement = clone;
+            Canvas2D.render();
+            showProperties(clone);
+            showToast("Element Cloned");
         };
 
         // Sticker Upload Logic
