@@ -1460,16 +1460,16 @@
         });
 
         function updateContentToolsState(mode) {
-            // Only disable content addition tools, keep Scan/Camera enabled always
-            const ids = ['btn-add-text', 'btn-add-shape', 'btn-add-sticker'];
-            const disabled = (mode === 'orbit');
+            // We now keep all tools enabled.
+            // If clicked in orbit mode, they auto-switch to front view.
+            const ids = ['btn-add-text', 'btn-add-shape', 'btn-add-sticker', 'btn-import-scan', 'btn-camera-scan'];
             ids.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) {
-                    el.disabled = disabled;
-                    el.style.opacity = disabled ? '0.3' : '1';
-                    el.style.pointerEvents = disabled ? 'none' : 'auto';
-                    el.style.cursor = disabled ? 'not-allowed' : 'pointer';
+                    el.disabled = false;
+                    el.style.opacity = '1';
+                    el.style.pointerEvents = 'auto';
+                    el.style.cursor = 'pointer';
                 }
             });
         }
@@ -1486,9 +1486,16 @@
 
             if (mode === 'orbit') {
                 controls.enabled = true;
+                // Open card slightly (20%) for free view
+                gsapLikeFold(0.2);
+
                 // Tween camera back to default
-                const angle = (1 - STATE.cardOpen) * Math.PI;
-                updateCameraFit(angle);
+                // Note: updateCameraFit uses STATE.cardOpen, which will animate over time.
+                // We might settle on final angle instantly for camera fitting or let it update?
+                // updateCameraFit calculates distance based on angle. 
+                // Let's just fit for the TARGET open state (0.2 -> ~144 deg).
+                const targetAngle = (1 - 0.2) * Math.PI;
+                updateCameraFit(targetAngle);
                 return;
             }
 
@@ -1833,52 +1840,57 @@
         };
 
         function addStickerImage(src) {
-            // Do NOT change view mode. 
-            // If in orbit, we default to placing on Front Cover (Outside Right).
-            const img = new Image();
-            img.onload = () => {
-                // Logic to scale down if too big
-                const MAX_SIZE = 500; // 500px is roughly 1/4 of card width 2048
-                let w = img.width;
-                let h = img.height;
+            // Auto-switch to Front view if in Orbit
+            if (STATE.viewMode === 'orbit') {
+                setMode('front');
+            }
 
-                if (w > MAX_SIZE || h > MAX_SIZE) {
-                    const ratio = w / h;
-                    if (w > h) {
-                        w = MAX_SIZE;
-                        h = w / ratio;
-                    } else {
-                        h = MAX_SIZE;
-                        w = h * ratio;
+            setTimeout(() => {
+                const img = new Image();
+                img.onload = () => {
+                    // Logic to scale down if too big
+                    const MAX_SIZE = 500; // 500px is roughly 1/4 of card width 2048
+                    let w = img.width;
+                    let h = img.height;
+
+                    if (w > MAX_SIZE || h > MAX_SIZE) {
+                        const ratio = w / h;
+                        if (w > h) {
+                            w = MAX_SIZE;
+                            h = w / ratio;
+                        } else {
+                            h = MAX_SIZE;
+                            w = h * ratio;
+                        }
                     }
-                }
 
-                const vm = STATE.viewMode || 'front';
-                const isInside = vm.includes('inside');
-                const list = isInside ? STATE.layers.inside : STATE.layers.outside;
+                    const vm = STATE.viewMode || 'front';
+                    const isInside = vm.includes('inside');
+                    const list = isInside ? STATE.layers.inside : STATE.layers.outside;
 
-                // Center in view based on the CURRENT vm
-                let xPct = 0.75; // Default to Right side (Front / Inside Right)
+                    // Center in view based on the CURRENT vm
+                    let xPct = 0.75; // Default to Right side (Front / Inside Right)
 
-                if (vm === 'back' || vm === 'inside-left') {
-                    xPct = 0.25; // Left side
-                }
+                    if (vm === 'back' || vm === 'inside-left') {
+                        xPct = 0.25; // Left side
+                    }
 
-                const x = Canvas2D.width * xPct;
+                    const x = Canvas2D.width * xPct;
 
-                list.push({
-                    id: Date.now(),
-                    type: 'image',
-                    imgElement: img,
-                    src: src, // Base64 or URL
-                    x: x, y: Canvas2D.height / 2,
-                    width: w, height: h,
-                    rotation: 0,
-                    ratioLocked: true
-                });
-                Canvas2D.render();
-            };
-            img.src = src;
+                    list.push({
+                        id: Date.now(),
+                        type: 'image',
+                        imgElement: img,
+                        src: src, // Base64 or URL
+                        x: x, y: Canvas2D.height / 2,
+                        width: w, height: h,
+                        rotation: 0,
+                        ratioLocked: true
+                    });
+                    Canvas2D.render();
+                };
+                img.src = src;
+            }, 100);
         }
 
         // populate general stickers
