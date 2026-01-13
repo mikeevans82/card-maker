@@ -3137,11 +3137,7 @@
             STATE.selectedElement = null;
             Canvas2D.render();
 
-            // Reset View
-            updateFold(0.2);
-            camera.position.set(2.75, 5, 15);
-            controls.target.set(2.75, 0, 0);
-            controls.update();
+            setMode('orbit');
 
             // Simple toast
             showToast("New Card Started");
