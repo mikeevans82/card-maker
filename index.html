@@ -266,27 +266,7 @@
             border: 1px solid var(--panel-border);
         }
 
-        #btn-brightness-toggle {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            z-index: 20;
-            background: var(--panel-bg);
-            backdrop-filter: blur(var(--glass-blur));
-            border: 1px solid var(--panel-border);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 20px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 0.9rem;
-        }
 
-        #btn-brightness-toggle:hover {
-            background: rgba(255, 255, 255, 0.1);
-        }
 
         input[type="range"] {
             accent-color: var(--accent-color);
@@ -466,7 +446,7 @@
     <div id="mobile-backdrop"></div>
 
     <div id="app">
-        <button id="btn-brightness-toggle">☀️ Full Bright: OFF</button>
+
         <!-- Left Sidebar: Assets & Tools -->
         <div class="panel">
             <h2>Card Creator</h2>
@@ -742,7 +722,7 @@
             selectedElement: null,
             selectedPanel: null, // 'front', 'back', 'inside-left', 'inside-right'
             db: null, // IndexedDB
-            fullBright: false,
+
 
             // Canvas Data Models
             // Each item: { id, type: 'text'|'image'|'shape', x, y, width, height, rotation, ...props }
@@ -1682,47 +1662,7 @@
             document.getElementById('mobile-backdrop').classList.remove('active');
         });
 
-        // Brightness Toggle
-        document.getElementById('btn-brightness-toggle').onclick = () => {
-            STATE.fullBright = !STATE.fullBright;
-            const btn = document.getElementById('btn-brightness-toggle');
 
-            if (STATE.fullBright) {
-                btn.innerText = "☀️ Full Bright: ON";
-                btn.style.background = "rgba(255, 255, 255, 0.3)";
-
-                // Switch to "Full Bright" look (Emissive Map)
-                // Use the texture as emissive map so it glows with its own colors
-                matOutside.emissiveMap = matOutside.map;
-                matOutside.emissive.setHex(0xffffff);
-                matOutside.emissiveIntensity = 1.0;
-                matOutside.color.setHex(0x000000); // Disable diffuse lighting
-                matOutside.needsUpdate = true;
-
-                matInside.emissiveMap = matInside.map;
-                matInside.emissive.setHex(0xffffff);
-                matInside.emissiveIntensity = 1.0;
-                matInside.color.setHex(0x000000); // Disable diffuse lighting
-                matInside.needsUpdate = true;
-
-            } else {
-                btn.innerText = "☀️ Full Bright: OFF";
-                btn.style.background = ""; // Reset
-
-                // Revert to "Lit" look
-                matOutside.emissiveMap = null;
-                matOutside.emissive.setHex(0x000000);
-                matOutside.emissiveIntensity = 0.0;
-                matOutside.color.setHex(0xffffff); // Restore diffuse
-                matOutside.needsUpdate = true;
-
-                matInside.emissiveMap = null;
-                matInside.emissive.setHex(0x000000);
-                matInside.emissiveIntensity = 0.0;
-                matInside.color.setHex(0xffffff); // Restore diffuse
-                matInside.needsUpdate = true;
-            }
-        };
 
         // --- Shape UI ---
         document.getElementById('btn-add-shape').onclick = () => {
@@ -2507,11 +2447,13 @@
             box.querySelector('#btn-custom-alert-ok').focus();
         }
 
-        function getRobustViewerHTML(dataOut, dataIn) {
+        function getRobustViewerHTML(dataOut, dataIn, stateJSON = null) {
+            const stateScript = stateJSON ? `<script id="card-state" type="application/json">${stateJSON}<\/script>` : '';
             return `<!DOCTYPE html>
 <html>
 <head>
     <title>Card Viewer</title>
+    ${stateScript}
     <style>
         body{ margin:0; overflow:hidden; background:#222; font-family: sans-serif; }
         #error-log { position: fixed; top: 10px; left: 10px; color: #f55; background: rgba(0,0,0,0.8); padding: 10px; display: none; z-index: 999; pointer-events: none; }
@@ -3458,16 +3400,16 @@
         document.getElementById('btn-shared-cards').onclick = openSharedCardsModal;
 
         async function openSharedCardsModal() {
-            // Create UI Overlay (Similar to Load Card)
+            // Create UI Overlay
             const overlay = document.createElement('div');
             overlay.style.cssText = "position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); z-index:10000; display:flex; flex-direction:column; padding:40px; color:white; font-family:sans-serif;";
 
             const header = document.createElement('div');
-            header.innerHTML = "<h2>Shared Cards</h2><p>Click link to view card, or Trash to delete.</p>";
+            header.innerHTML = "<h2>Shared Cards</h2><p>Community gallery of 3D cards.</p>";
             overlay.appendChild(header);
 
             const grid = document.createElement('div');
-            grid.style.cssText = "display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap:10px; overflow-y:auto; padding:20px 0;";
+            grid.style.cssText = "display:grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap:15px; overflow-y:auto; padding:20px 0;";
             overlay.appendChild(grid);
 
             // Loading state
@@ -3505,43 +3447,118 @@
                 }
 
                 result.items.forEach(item => {
+                    const url = `https://${bucket}.s3.${region}.amazonaws.com/public/${item.key}`;
+
                     const itemEl = document.createElement('div');
-                    itemEl.style.cssText = "display: flex; justify-content: space-between; align-items: center; background: #333; padding: 15px; border-radius: 8px; border: 1px solid #555; font-size: 1rem;";
+                    itemEl.style.cssText = "background: #333; padding: 15px; border-radius: 8px; border: 1px solid #555; display:flex; flex-direction:column; gap:10px;";
 
-                    const nameEl = document.createElement('span');
-                    nameEl.innerText = item.key;
-                    nameEl.style.cssText = "cursor: pointer; color: var(--accent-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1; font-weight:bold;";
-                    nameEl.onclick = () => {
-                        const url = `https://${bucket}.s3.${region}.amazonaws.com/public/${item.key}`;
-                        window.open(url, '_blank');
-                    };
+                    // Parse name
+                    let displayName = item.key;
+                    let displayDate = "";
 
+                    const match = item.key.match(/^card-(\d+)(?:-(.*))?\.html$/);
+                    if (match) {
+                        const ts = parseInt(match[1]);
+                        const rawName = match[2];
+
+                        if (rawName) {
+                            displayName = rawName.replace(/-/g, ' ');
+                        } else {
+                            displayName = "Untitled Card";
+                        }
+                        if (!rawName && item.key.indexOf('card-' + ts + '.html') !== -1) {
+                            displayName = "Legacy Card";
+                        }
+                        displayDate = new Date(ts).toLocaleDateString();
+                    }
+
+                    // Card Header (Name + Date)
+                    const headerRow = document.createElement('div');
+                    headerRow.style.cssText = "display:flex; justify-content:space-between; align-items:center;";
+
+                    const nameCol = document.createElement('div');
+                    nameCol.innerHTML = `<div style="font-weight:bold; font-size:1.1rem; color:var(--accent-color); cursor:pointer;">${displayName}</div><div style="font-size:0.8rem; color:#888;">${displayDate}</div>`;
+
+                    // Click Name -> Edit
+                    nameCol.querySelector('div').onclick = () => doEdit(url, displayName);
+
+                    // Delete Button
                     const delBtn = document.createElement('button');
                     delBtn.innerText = '🗑️';
-                    delBtn.style.cssText = "cursor: pointer; margin-left: 10px; background: transparent; border: none; font-size: 1.2rem;";
+                    delBtn.title = "Delete";
+                    delBtn.style.cssText = "background:transparent; border:none; color:#666; cursor:pointer;";
                     delBtn.onclick = async (e) => {
                         e.stopPropagation();
-
                         if (delBtn.innerText === '🗑️') {
                             delBtn.innerText = 'Sure?';
-                            setTimeout(() => {
-                                if (itemEl.parentElement) delBtn.innerText = '🗑️';
-                            }, 3000);
+                            setTimeout(() => { if (itemEl.parentElement) delBtn.innerText = '🗑️'; }, 3000);
                         } else {
                             delBtn.innerText = "⏳";
                             try {
                                 await remove({ key: item.key, options: { accessLevel: 'guest' } });
                                 itemEl.remove();
                             } catch (err) {
-                                // alert("Failed to delete: " + err.message);
                                 console.error(err);
                                 delBtn.innerText = '🗑️';
                             }
                         }
                     };
 
-                    itemEl.appendChild(nameEl);
-                    itemEl.appendChild(delBtn);
+                    headerRow.appendChild(nameCol);
+                    headerRow.appendChild(delBtn);
+                    itemEl.appendChild(headerRow);
+
+                    // Action Buttons Row
+                    const btnRow = document.createElement('div');
+                    btnRow.style.cssText = "display:flex; gap:8px; margin-top:5px;";
+
+                    // 1. Share
+                    const btnShare = document.createElement('button');
+                    btnShare.innerHTML = "📣";
+                    btnShare.title = "Share via Device";
+                    btnShare.style.flex = "1";
+                    btnShare.onclick = () => {
+                        if (navigator.share) {
+                            navigator.share({
+                                title: displayName,
+                                text: `Check out this 3D card: ${displayName}`,
+                                url: url
+                            }).catch(console.error);
+                        } else {
+                            // Fallback to copy
+                            copyToClip(url, btnShare);
+                        }
+                    };
+                    if (!navigator.share) btnShare.style.display = "none";
+
+                    // 2. Copy Link
+                    const btnCopy = document.createElement('button');
+                    btnCopy.innerHTML = "📋";
+                    btnCopy.title = "Copy Link";
+                    btnCopy.style.flex = "1";
+                    btnCopy.onclick = () => copyToClip(url, btnCopy);
+
+                    // 3. View
+                    const btnView = document.createElement('button');
+                    btnView.innerHTML = "👁️";
+                    btnView.title = "View in Browser";
+                    btnView.style.flex = "1";
+                    btnView.onclick = () => window.open(url, '_blank');
+
+                    // 4. Edit
+                    const btnEdit = document.createElement('button');
+                    btnEdit.innerHTML = "✏️";
+                    btnEdit.title = "Edit Card";
+                    btnEdit.style.flex = "1";
+                    btnEdit.style.background = "var(--accent-color)";
+                    btnEdit.onclick = () => doEdit(url, displayName);
+
+                    btnRow.appendChild(btnShare);
+                    btnRow.appendChild(btnCopy);
+                    btnRow.appendChild(btnView);
+                    btnRow.appendChild(btnEdit);
+
+                    itemEl.appendChild(btnRow);
                     grid.appendChild(itemEl);
                 });
 
@@ -3550,6 +3567,64 @@
                 grid.innerHTML = '<div style="color:#f55;">Error loading shared cards.</div>';
             }
             addCloseBtn();
+
+            // Helper: Copy logic
+            function copyToClip(text, btn) {
+                const original = btn.innerHTML;
+                navigator.clipboard.writeText(text).then(() => {
+                    btn.innerText = "✅";
+                    setTimeout(() => btn.innerHTML = original, 2000);
+                }).catch(() => prompt("Copy Link:", text));
+            }
+
+            // Helper: Edit Logic
+            async function doEdit(url, name) {
+                showToast("Fetching card data...");
+
+                try {
+                    const resp = await fetch(url);
+                    if (!resp.ok) throw new Error("Failed to fetch card file");
+                    const html = await resp.text();
+
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const script = doc.getElementById('card-state');
+
+                    if (!script) {
+                        showCustomAlert("This card is from an older version and cannot be edited.", "Read-Only Card");
+                        return;
+                    }
+
+                    const json = script.textContent;
+                    const data = JSON.parse(json);
+
+                    const confirmLoad = confirm(`Load "${name}"? Unsaved changes will be lost.`);
+                    if (!confirmLoad) return;
+
+                    // Load Data
+                    STATE.layers.outside = await hydrateLayers(data.outside || []);
+                    STATE.layers.inside = await hydrateLayers(data.inside || []);
+                    STATE.currentCardName = data.cardName || name;
+
+                    // Reset View
+                    STATE.selectedElement = null;
+                    STATE.history = [];
+                    STATE.historyIndex = -1;
+                    if (window.recordState) recordState(); // Ensure it exists if we track undo
+
+                    Canvas2D.render();
+                    setMode('orbit');
+                    updateFold(0.2);
+
+                    // Close modal
+                    document.body.removeChild(overlay);
+                    showToast(`Loaded "${name}"`);
+
+                } catch (e) {
+                    console.error(e);
+                    showCustomAlert("Failed to load for editing: " + e.message, "Edit Error");
+                }
+            }
         }
 
         // Mobile UI Logic
@@ -3602,7 +3677,16 @@
             const dataOut = canvasOutside.toDataURL('image/jpeg', 0.8);
             const dataIn = canvasInside.toDataURL('image/jpeg', 0.8);
 
-            return getRobustViewerHTML(dataOut, dataIn);
+            // Capture State
+            const stateData = {
+                outside: STATE.layers.outside.map(l => ({ ...l, imgElement: null })),
+                inside: STATE.layers.inside.map(l => ({ ...l, imgElement: null })),
+                cardName: STATE.currentCardName,
+                version: 1
+            };
+            const stateJSON = JSON.stringify(stateData);
+
+            return getRobustViewerHTML(dataOut, dataIn, stateJSON);
         }
 
         function showPublishSuccessModal(url) {
