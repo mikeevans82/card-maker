@@ -2096,6 +2096,28 @@
         };
 
 
+        // Helper: Optimize Image (WebP, 0.8, Max 1650x1275)
+        function optimizeImg(source) {
+            const MAX_W = 1650;
+            const MAX_H = 1275;
+            let w = source.width;
+            let h = source.height;
+
+            // Scale down if needed
+            if (w > MAX_W || h > MAX_H) {
+                const ratio = Math.min(MAX_W / w, MAX_H / h);
+                w = Math.floor(w * ratio);
+                h = Math.floor(h * ratio);
+            }
+
+            const c = document.createElement('canvas');
+            c.width = w;
+            c.height = h;
+            const ctx = c.getContext('2d');
+            ctx.drawImage(source, 0, 0, w, h);
+            return c.toDataURL('image/webp', 0.8);
+        }
+
         document.getElementById('file-input-scan-front').onchange = (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -2103,33 +2125,37 @@
             reader.onload = (evt) => {
                 const img = new Image();
                 img.onload = () => {
-                    // Check Orientation for correct fit
-                    let rot = 0;
-                    let w = Canvas2D.width;
-                    let h = Canvas2D.height;
+                    // Optimize
+                    const optDataUrl = optimizeImg(img);
 
-                    // If image is Portrait (Vertical), but we are putting it on a Landscape Canvas:
-                    // We assume it's a vertical card (or unrotated phone photo).
-                    // We rotate it -90 degrees to fit the Landscape sheet.
-                    if (img.width < img.height) {
-                        rot = -Math.PI / 2;
-                        w = Canvas2D.height;
-                        h = Canvas2D.width;
-                    }
+                    // Re-load optimized image for display/state
+                    const optImg = new Image();
+                    optImg.onload = () => {
+                        // Check Orientation
+                        let rot = 0;
+                        let w = Canvas2D.width;
+                        let h = Canvas2D.height;
 
-                    STATE.layers.outside = [{
-                        id: 'scan-out', type: 'image', imgElement: img,
-                        src: evt.target.result, // Persist data
-                        x: Canvas2D.width / 2, y: Canvas2D.height / 2,
-                        width: w, height: h,
-                        rotation: rot,
-                        locked: true
-                    }];
-                    Canvas2D.render();
+                        if (optImg.width < optImg.height) {
+                            rot = -Math.PI / 2;
+                            w = Canvas2D.height;
+                            h = Canvas2D.width;
+                        }
 
-                    e.target.value = ''; // Reset for re-use
+                        STATE.layers.outside = [{
+                            id: 'scan-out', type: 'image', imgElement: optImg,
+                            src: optDataUrl,
+                            x: Canvas2D.width / 2, y: Canvas2D.height / 2,
+                            width: w, height: h,
+                            rotation: rot,
+                            locked: true
+                        }];
+                        Canvas2D.render();
+                    };
+                    optImg.src = optDataUrl;
 
-                    // Chain next step with consistent UI
+                    e.target.value = ''; // Reset
+
                     showCustomAlert(
                         "Great! Now select the image for the INSIDE of the paper.",
                         "Import - Step 2/2",
@@ -2151,26 +2177,34 @@
             reader.onload = (evt) => {
                 const img = new Image();
                 img.onload = () => {
-                    // Check Orientation for correct fit
-                    let rot = 0;
-                    let w = Canvas2D.width;
-                    let h = Canvas2D.height;
+                    // Optimize
+                    const optDataUrl = optimizeImg(img);
 
-                    if (img.width < img.height) {
-                        rot = -Math.PI / 2;
-                        w = Canvas2D.height;
-                        h = Canvas2D.width;
-                    }
+                    const optImg = new Image();
+                    optImg.onload = () => {
+                        // Check Orientation
+                        let rot = 0;
+                        let w = Canvas2D.width;
+                        let h = Canvas2D.height;
 
-                    STATE.layers.inside = [{
-                        id: 'scan-in', type: 'image', imgElement: img,
-                        src: evt.target.result, // Persist data
-                        x: Canvas2D.width / 2, y: Canvas2D.height / 2,
-                        width: w, height: h,
-                        rotation: rot,
-                        locked: true
-                    }];
-                    Canvas2D.render();
+                        if (optImg.width < optImg.height) {
+                            rot = -Math.PI / 2;
+                            w = Canvas2D.height;
+                            h = Canvas2D.width;
+                        }
+
+                        STATE.layers.inside = [{
+                            id: 'scan-in', type: 'image', imgElement: optImg,
+                            src: optDataUrl,
+                            x: Canvas2D.width / 2, y: Canvas2D.height / 2,
+                            width: w, height: h,
+                            rotation: rot,
+                            locked: true
+                        }];
+                        Canvas2D.render();
+                    };
+                    optImg.src = optDataUrl;
+
                     e.target.value = ''; // Reset
                 };
                 img.onerror = () => showCustomAlert("Failed to load Inside image.", "Error");
@@ -2330,8 +2364,11 @@
                 cCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
             }
 
-            // Show Preview
-            const dataUrl = cropCanvas.toDataURL('image/jpeg', 0.9);
+            // Show Preview (Optimized)
+            // Use the helper on the canvas. 
+            // Note: Canvas is a valid source for drawImage too.
+            // But optimizeImg expects an element with .width and .height properties, which canvas has.
+            const dataUrl = optimizeImg(cropCanvas);
             previewImg.src = dataUrl;
             previewDiv.style.display = 'flex';
         };
