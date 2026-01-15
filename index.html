@@ -2103,11 +2103,26 @@
             reader.onload = (evt) => {
                 const img = new Image();
                 img.onload = () => {
+                    // Check Orientation for correct fit
+                    let rot = 0;
+                    let w = Canvas2D.width;
+                    let h = Canvas2D.height;
+
+                    // If image is Portrait (Vertical), but we are putting it on a Landscape Canvas:
+                    // We assume it's a vertical card (or unrotated phone photo).
+                    // We rotate it -90 degrees to fit the Landscape sheet.
+                    if (img.width < img.height) {
+                        rot = -Math.PI / 2;
+                        w = Canvas2D.height;
+                        h = Canvas2D.width;
+                    }
+
                     STATE.layers.outside = [{
                         id: 'scan-out', type: 'image', imgElement: img,
                         src: evt.target.result, // Persist data
                         x: Canvas2D.width / 2, y: Canvas2D.height / 2,
-                        width: Canvas2D.width, height: Canvas2D.height,
+                        width: w, height: h,
+                        rotation: rot,
                         locked: true
                     }];
                     Canvas2D.render();
@@ -2136,11 +2151,23 @@
             reader.onload = (evt) => {
                 const img = new Image();
                 img.onload = () => {
+                    // Check Orientation for correct fit
+                    let rot = 0;
+                    let w = Canvas2D.width;
+                    let h = Canvas2D.height;
+
+                    if (img.width < img.height) {
+                        rot = -Math.PI / 2;
+                        w = Canvas2D.height;
+                        h = Canvas2D.width;
+                    }
+
                     STATE.layers.inside = [{
                         id: 'scan-in', type: 'image', imgElement: img,
                         src: evt.target.result, // Persist data
                         x: Canvas2D.width / 2, y: Canvas2D.height / 2,
-                        width: Canvas2D.width, height: Canvas2D.height,
+                        width: w, height: h,
+                        rotation: rot,
                         locked: true
                     }];
                     Canvas2D.render();
@@ -2673,19 +2700,27 @@
                  }
             } else {
                  if (controls.enabled) {
-                     const tipX = -5.5 * Math.cos(leftGroup.rotation.y);
-                     
-                     // Bounding Box Logic for correct centering
-                     const minX = Math.min(0, tipX);
-                     const maxX = 5.5;
-                     const visCenterLocal = (minX + maxX) / 2;
-                     
-                     const sign = (Math.abs(rotationTargetY) > 2) ? -1 : 1; 
-                     const targetX = visCenterLocal * sign;
-                     
-                     const delta = (targetX - controls.target.x) * 0.1;
-                     controls.target.x += delta;
-                     camera.position.x += delta;
+                     // Check if rotated
+                     if (Math.abs(rotationTargetZ) > 0.1) {
+                         // If rotated (Landscape), center at 0
+                         const delta = (0 - controls.target.x) * 0.1;
+                         controls.target.x += delta;
+                         camera.position.x += delta;
+                     } else {
+                         const tipX = -5.5 * Math.cos(leftGroup.rotation.y);
+                         
+                         // Bounding Box Logic for correct centering
+                         const minX = Math.min(0, tipX);
+                         const maxX = 5.5;
+                         const visCenterLocal = (minX + maxX) / 2;
+                         
+                         const sign = (Math.abs(rotationTargetY) > 2) ? -1 : 1; 
+                         const targetX = visCenterLocal * sign;
+                         
+                         const delta = (targetX - controls.target.x) * 0.1;
+                         controls.target.x += delta;
+                         camera.position.x += delta;
+                     }
                  }
             }
 
@@ -2927,39 +2962,46 @@
              }
         } 
         else {
-            // Dynamic Centering Logic 
             if (controls.enabled) {
-                // ... (Existing centering logic remains same)
-                
-                // IMPORTANT: When flipping to BACK (RotY=PI), the visual calculation changes.
-                // Left Wing angle is relative to wrapper.
-                // If Wrapper is rotated 180, the 'Left Wing' is on the Right.
-                // But let's assume simple centroid centering of the visible bounding box.
-                
-                // Tip Local X = -5.5 * cos(angle).
-                // If RotY = 0: World X = Tip Local X.
-                // If RotY = PI: World X = -Tip Local X.
-                
-                // Calculate VISUAL bounding width effectively
-                const tipLocalX = -5.5 * Math.cos(nextAngle);
-                
-                // Effective width for calculating Zoom is handled by our constant checks in 'resize' 
-                // but here for Centering we just need roughly the centroid.
-                
-                const minX = Math.min(0, tipLocalX);
-                const maxX = 5.5;
-                const localCenter = (minX + maxX) / 2;
-                
-                // If rotated 180, the World Center is roughly -localCenter
-                if (Math.abs(rotationTargetY) > 0.1) {
-                    centerX = -localCenter;
+                if (Math.abs(rotationTargetZ) > 0.1) {
+                    // If rotated (Landscape), center at 0
+                    const delta = (0 - controls.target.x) * 0.1;
+                    controls.target.x += delta;
+                    camera.position.x += delta;
                 } else {
-                    centerX = localCenter;
+                    // ... (Existing centering logic remains same)
+                    
+                    // IMPORTANT: When flipping to BACK (RotY=PI), the visual calculation changes.
+                    // Left Wing angle is relative to wrapper.
+                    // If Wrapper is rotated 180, the 'Left Wing' is on the Right.
+                    // But let's assume simple centroid centering of the visible bounding box.
+                    
+                    // Tip Local X = -5.5 * cos(angle).
+                    // If RotY = 0: World X = Tip Local X.
+                    // If RotY = PI: World X = -Tip Local X.
+                    
+                    // Calculate VISUAL bounding width effectively
+                    const tipLocalX = -5.5 * Math.cos(nextAngle);
+                    
+                    // Effective width for calculating Zoom is handled by our constant checks in 'resize' 
+                    // but here for Centering we just need roughly the centroid.
+                    
+                    const minX = Math.min(0, tipLocalX);
+                    const maxX = 5.5;
+                    const localCenter = (minX + maxX) / 2;
+                    let centerX = 0;
+                    
+                    // If rotated 180, the World Center is roughly -localCenter
+                    if (Math.abs(rotationTargetY) > 0.1) {
+                        centerX = -localCenter;
+                    } else {
+                        centerX = localCenter;
+                    }
+    
+                    const delta = centerX - controls.target.x;
+                    controls.target.x += delta;
+                    camera.position.x += delta; 
                 }
-
-                const delta = centerX - controls.target.x;
-                controls.target.x += delta;
-                camera.position.x += delta; 
             }
         }
         
@@ -3042,7 +3084,7 @@
 
             box.querySelector('#btn-cancel-save').onclick = close;
 
-            box.querySelector('#btn-confirm-save').onclick = () => {
+            box.querySelector('#btn-confirm-save').onclick = async () => {
                 const name = input.value.trim() || "Untitled Card";
 
                 const data = {
@@ -3053,11 +3095,12 @@
                 };
 
                 try {
-                    localStorage.setItem(`card_proj_${name}`, JSON.stringify(data));
+                    // Use localforage instead of localStorage
+                    await localforage.setItem(`card_proj_${name}`, JSON.stringify(data));
                     showToast(`Saved "${name}"`);
                     close();
                 } catch (e) {
-                    showCustomAlert("Save failed (Storage Full?): " + e.message, "Save Error");
+                    showCustomAlert("Save failed: " + e.message, "Save Error");
                 }
             };
 
@@ -3088,7 +3131,7 @@
         const btnCatalog = document.getElementById('btn-load-project');
         btnCatalog.innerText = "Load Card";
 
-        btnCatalog.onclick = () => {
+        btnCatalog.onclick = async () => {
             // Create UI Overlay
             const overlay = document.createElement('div');
             overlay.style.cssText = "position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); z-index:10000; display:flex; flex-direction:column; padding:40px; color:white; font-family:sans-serif;";
@@ -3097,26 +3140,51 @@
             header.innerHTML = "<h2>Saved Cards Catalog</h2><p>Select a card to load (Unsaved changes will be lost):</p>";
             overlay.appendChild(header);
 
-
-
             const grid = document.createElement('div');
             grid.style.cssText = "display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:20px; overflow-y:auto; padding:20px 0;";
             overlay.appendChild(grid);
+            grid.innerHTML = '<div style="color:#aaa;">Loading projects...</div>';
 
-            // Find Projects
+            // Find Projects from BOTH localStorage (Legacy) and localforage (New)
             const keys = [];
+            const projectMap = new Map(); // key -> { storage: 'local'|'forage', data: string }
+
+            // 1. Legacy localStorage
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
-                if (key.startsWith('card_proj_')) keys.push(key);
+                if (key.startsWith('card_proj_')) {
+                    projectMap.set(key, { storage: 'local' });
+                }
             }
 
-            if (keys.length === 0) {
+            // 2. New localforage
+            try {
+                const forageKeys = await localforage.keys();
+                forageKeys.forEach(k => {
+                    if (k.startsWith('card_proj_')) {
+                        // Prefer forage if duplicate (newer)
+                        projectMap.set(k, { storage: 'forage' });
+                    }
+                });
+            } catch (e) { console.error("Forage keys error", e); }
+
+            if (projectMap.size === 0) {
                 grid.innerHTML = "<div>No saved projects found. Save one first!</div>";
+            } else {
+                grid.innerHTML = ""; // Clear loader
             }
 
-            keys.forEach(key => {
+            for (const [key, info] of projectMap.entries()) {
                 const projName = key.replace('card_proj_', '');
-                const raw = localStorage.getItem(key);
+
+                // Fetch Data needed for preview (Meta)
+                let raw = null;
+                if (info.storage === 'local') {
+                    raw = localStorage.getItem(key);
+                } else {
+                    raw = await localforage.getItem(key);
+                }
+
                 let meta = {};
                 try { meta = JSON.parse(raw); } catch (e) { }
 
@@ -3125,17 +3193,14 @@
                 cardir.innerHTML = `
                     <div style="font-weight:bold; font-size:1.1rem; margin-bottom:5px;">${projName}</div>
                     <div style="font-size:0.8rem; color:#aaa;">${new Date(meta.date || 0).toLocaleDateString()}</div>
+                    ${info.storage === 'local' ? '<div style="font-size:0.7rem; color:#f90; margin-top:5px;">(Legacy Storage)</div>' : ''}
                 `;
                 cardir.onmouseover = () => cardir.style.background = '#444';
                 cardir.onmouseout = () => cardir.style.background = '#333';
 
                 cardir.onclick = async () => {
-                    const isEmpty = STATE.layers.outside.length === 0 && STATE.layers.inside.length === 0;
-                    // Skip confirm to avoid browser blocking issues
-                    // if (!isEmpty && !confirm(`Load "${projName}"? Unsaved changes will be lost.`)) return;
-
                     try {
-                        const data = JSON.parse(localStorage.getItem(key));
+                        const data = JSON.parse(raw);
                         // Rebuild state
                         STATE.layers.outside = await hydrateLayers(data.outside || []);
                         STATE.layers.inside = await hydrateLayers(data.inside || []);
@@ -3167,7 +3232,7 @@
                     viewBtn.disabled = true;
                     viewBtn.innerText = "⌛";
                     try {
-                        const data = JSON.parse(localStorage.getItem(key));
+                        const data = JSON.parse(raw);
                         const { dataOut, dataIn } = await renderCardToDataUrls(data.outside || [], data.inside || []);
                         const html = getRobustViewerHTML(dataOut, dataIn);
                         const blob = new Blob([html], { type: 'text/html' });
@@ -3187,7 +3252,7 @@
                 delBtn.innerText = "×";
                 delBtn.title = "Delete Card";
                 delBtn.style.cssText = "float:right; background:transparent; border:none; color:#f55; font-size:1.4rem; cursor:pointer; margin-top:-5px;";
-                delBtn.onclick = (e) => {
+                delBtn.onclick = async (e) => {
                     e.stopPropagation();
                     if (delBtn.innerText === "×") {
                         delBtn.innerText = "Sure?";
@@ -3200,14 +3265,18 @@
                             }
                         }, 3000);
                     } else {
-                        localStorage.removeItem(key);
+                        if (info.storage === 'local') {
+                            localStorage.removeItem(key);
+                        } else {
+                            await localforage.removeItem(key);
+                        }
                         cardir.remove();
                     }
                 };
                 cardir.insertBefore(delBtn, cardir.firstChild);
 
                 grid.appendChild(cardir);
-            });
+            }
 
             const closeBtn = document.createElement('button');
             closeBtn.innerText = "Close Catalog";
@@ -3765,6 +3834,12 @@
 
         document.getElementById('btn-publish-cloud').onclick = async () => {
             const btn = document.getElementById('btn-publish-cloud');
+
+            // 1. Prompt for name immediately
+            let cardName = prompt("Enter a name for your card (for the shared list):", STATE.currentCardName || "My Card");
+            if (cardName === null) return; // User cancelled
+            cardName = cardName.trim() || "Untitled";
+
             const originalText = btn.innerText;
             btn.innerText = "⏳ Publishing...";
             btn.disabled = true;
@@ -3776,8 +3851,15 @@
                     throw new Error("You must be signed in to publish to the cloud.");
                 }
 
+                // Update state with name so it's inside the file too
+                STATE.currentCardName = cardName;
+
                 const htmlString = await generateHTMLString();
-                const key = `card-${Date.now()}.html`;
+
+                // 2. Generate filename with name
+                // Sanitize name: keep only alphanumeric, replace spaces with dashes
+                const safeName = cardName.replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "-");
+                const key = `card-${Date.now()}-${safeName}.html`;
 
                 await uploadData({
                     key: key,
