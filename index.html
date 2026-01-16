@@ -3324,6 +3324,7 @@
                         // Rebuild state
                         STATE.layers.outside = await hydrateLayers(data.outside || []);
                         STATE.layers.inside = await hydrateLayers(data.inside || []);
+                        STATE.currentCardName = data.cardName || projName;
 
                         STATE.selectedElement = null;
                         Canvas2D.render();
