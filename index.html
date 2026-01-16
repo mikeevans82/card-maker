@@ -3547,7 +3547,13 @@
                     authMsg.innerText = 'Code sent to ' + username;
                 } else if (authMode === 'confirm') {
                     await confirmSignUp({ username, confirmationCode: code });
-                    await autoSignIn();
+                    try {
+                        await autoSignIn();
+                    } catch (e) {
+                        // Fallback if auto-sign-in fails (common)
+                        console.log("Auto-sign-in failed, trying manual sign-in...");
+                        await signIn({ username, password });
+                    }
                     authContainer.classList.add('hidden');
                     updateAuthUI();
                 }
