@@ -3624,7 +3624,12 @@
                 const bucket = awsconfig.aws_user_files_s3_bucket;
                 const region = awsconfig.aws_user_files_s3_bucket_region;
 
+                // SCOPE TO USER: Get Identity ID
+                const { identityId } = await fetchAuthSession();
+
+                // List only files under this user's folder
                 const result = await list({
+                    prefix: `${identityId}/`,
                     options: { accessLevel: 'guest' }
                 });
 
@@ -3968,6 +3973,7 @@
                 if (!session.tokens) {
                     throw new Error("You must be signed in to publish to the cloud.");
                 }
+                const identityId = session.identityId;
 
                 // Update state with name so it's inside the file too
                 STATE.currentCardName = cardName;
@@ -3977,7 +3983,9 @@
                 // 2. Generate filename with name
                 // Sanitize name: keep only alphanumeric, replace spaces with dashes
                 const safeName = cardName.replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "-");
-                const key = `card-${Date.now()}-${safeName}.html`;
+
+                // SCOPE TO USER: Prefix with identityId
+                const key = `${identityId}/card-${Date.now()}-${safeName}.html`;
 
                 await uploadData({
                     key: key,
