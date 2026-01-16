@@ -5,6 +5,8 @@ backend:
       commands:
         - '# Execute Amplify CLI with the helper script'
         - amplifyPush --simple
+        - '# Ensure aws-exports.js is at the root'
+        - if [ -f src/aws-exports.js ]; then mv src/aws-exports.js .; fi
 frontend:
   phases:
     # IMPORTANT - 'build' phase is ignored for HTML apps, but we need it for the structure
