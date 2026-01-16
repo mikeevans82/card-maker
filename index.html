@@ -2393,16 +2393,55 @@
             canvas.height = vH;
             ctx.drawImage(videoEl, 0, 0, vW, vH);
 
+            // Object-Fit: Cover Logic
+            // We must calculate exactly what part of the video is visible in vRect
             const vRect = videoEl.getBoundingClientRect();
             const gRect = guideEl.getBoundingClientRect();
 
-            const scaleX = vW / vRect.width;
-            const scaleY = vH / vRect.height;
+            const vidRatio = vW / vH;
+            const screenRatio = vRect.width / vRect.height;
 
-            const cropX = Math.max(0, (gRect.left - vRect.left) * scaleX);
-            const cropY = Math.max(0, (gRect.top - vRect.top) * scaleY);
-            const cropW = Math.min(vW - cropX, gRect.width * scaleX);
-            const cropH = Math.min(vH - cropY, gRect.height * scaleY);
+            let renderW, renderH, offsetX, offsetY;
+            let scale; // Scale = Video Pixels per Screen Pixel
+
+            if (screenRatio > vidRatio) {
+                // Screen is wider than video (or Video is taller than screen)
+                // Video is fitted to Width. Top/Bottom cropped.
+                // renderW = vRect.width; 
+                // renderH = vRect.width / vidRatio; 
+                scale = vW / vRect.width;
+                // Offset in Screen Pixels? No, let's work in Video Pixels.
+                // Visible Video Height = vRect.height * scale;
+                // Total Video Height = vH;
+                // diff = vH - Visible Video Height.
+                // startY = diff / 2.
+
+                const visibleVideoH = vRect.height * scale;
+                const hiddenH = vH - visibleVideoH;
+                offsetY = hiddenH / 2;
+                offsetX = 0;
+            } else {
+                // Screen is taller than video (or Video is wider than screen)
+                // Video is fitted to Height. Left/Right cropped.
+                scale = vH / vRect.height;
+
+                const visibleVideoW = vRect.width * scale;
+                const hiddenW = vW - visibleVideoW;
+                offsetX = hiddenW / 2;
+                offsetY = 0;
+            }
+
+            // Calculate Crop Coordinates in Video Space
+            // gRect relative to vRect
+            const gLeft = gRect.left - vRect.left;
+            const gTop = gRect.top - vRect.top;
+
+            const cropX = Math.max(0, offsetX + (gLeft * scale));
+            const cropY = Math.max(0, offsetY + (gTop * scale));
+            const cropW = Math.min(vW - cropX, gRect.width * scale);
+            const cropH = Math.min(vH - cropY, gRect.height * scale);
+
+            console.log("Capture Debug:", { vW, vH, vRect, gRect, scale, offsetX, offsetY, cropX, cropY, cropW, cropH });
 
             const cropCanvas = document.createElement('canvas');
             // We want final result to be Landscape (Width > Height)
@@ -2417,6 +2456,7 @@
                 const cCtx = cropCanvas.getContext('2d');
                 cCtx.translate(0, cropW);
                 cCtx.rotate(-90 * Math.PI / 180);
+                // Source is un-rotated video canvas
                 cCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
             } else {
                 cropCanvas.width = cropW;
@@ -2473,7 +2513,8 @@
                         "Camera - Step 2/2",
                         () => {
                             // Ready for inside
-                        }
+                        },
+                        { rotate: 90 }
                     );
                 } else {
                     STATE.layers.inside = [item];
@@ -2552,7 +2593,7 @@
             }, duration);
         }
 
-        function showCustomAlert(message, title = "Alert", onCloseCallback = null) {
+        function showCustomAlert(message, title = "Alert", onCloseCallback = null, options = {}) {
             const overlay = document.createElement('div');
             overlay.style.cssText = "position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:20000; display:flex; align-items:center; justify-content:center; font-family:sans-serif;";
 
@@ -2569,9 +2610,12 @@
             document.body.appendChild(overlay);
 
             // Animate
-            box.style.transform = "scale(0.9)";
+            const initialTransform = options.rotate ? `scale(0.9) rotate(${options.rotate}deg)` : "scale(0.9)";
+            const finalTransform = options.rotate ? `scale(1) rotate(${options.rotate}deg)` : "scale(1)";
+
+            box.style.transform = initialTransform;
             box.style.transition = "transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)";
-            requestAnimationFrame(() => box.style.transform = "scale(1)");
+            requestAnimationFrame(() => box.style.transform = finalTransform);
 
             const close = () => {
                 overlay.style.opacity = "0";
