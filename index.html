@@ -3648,6 +3648,7 @@
                 }
 
                 result.items.forEach(item => {
+                    // Manual Public URL (Works if Bucket is Public/Guest-Enabled)
                     const url = `https://${bucket}.s3.${region}.amazonaws.com/public/${item.key}`;
 
                     const itemEl = document.createElement('div');
@@ -3657,7 +3658,9 @@
                     let displayName = item.key;
                     let displayDate = "";
 
-                    const match = item.key.match(/^card-(\d+)(?:-(.*))?\.html$/);
+                    // Parse regex to handle optional folder prefix (legacy or scoped)
+                    // Matches: [optional folder/]card-[timestamp]-[name].html
+                    const match = item.key.match(/(?:.*\/)?card-(\d+)(?:-(.*))?\.html$/);
                     if (match) {
                         const ts = parseInt(match[1]);
                         const rawName = match[2];
