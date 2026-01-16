@@ -3215,6 +3215,8 @@
                 try {
                     // Use localforage instead of localStorage
                     await localforage.setItem(`card_proj_${name}`, JSON.stringify(data));
+                    // Update state so publish uses this name
+                    STATE.currentCardName = name;
                     showToast(`Saved "${name}"`);
                     close();
                 } catch (e) {
