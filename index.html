@@ -450,7 +450,11 @@
 
         <!-- Left Sidebar: Assets & Tools -->
         <div class="panel">
-            <h2>Card Creator</h2>
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+                <h2>Card Creator</h2>
+                <button id="btn-app-info"
+                    style="background:transparent; border:none; color:var(--text-sec); cursor:pointer; font-size:1.2rem; padding:0;">❓</button>
+            </div>
 
 
 
@@ -616,6 +620,54 @@
                     Cloud</button>
             </div>
         </div>
+
+        <!-- Info Modal -->
+        <div id="modal-app-info" class="hidden"
+            style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:10000; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(5px);">
+            <div
+                style="background:var(--panel-bg); border:1px solid var(--panel-border); padding:40px; border-radius:16px; width:90%; max-width:500px; color:white; font-family:'Inter', sans-serif; box-shadow:0 20px 60px rgba(0,0,0,0.5); position:relative;">
+                <button id="btn-close-info"
+                    style="position:absolute; top:20px; right:20px; background:transparent; border:none; color:#aaa; font-size:1.5rem; cursor:pointer;">&times;</button>
+
+                <h1
+                    style="margin-top:0; font-family:'Pacifico', cursive; color:var(--accent-color); font-size:2.5rem; text-align:center; margin-bottom:10px;">
+                    Card Creator 3D</h1>
+
+                <div style="text-align:center; font-size:1.1rem; color:#eee; margin-bottom:30px; line-height:1.6;">
+                    Turn your hand-drawn art into interactive 3D greeting cards.
+                </div>
+
+                <div style="background:rgba(255,255,255,0.05); padding:20px; border-radius:12px; margin-bottom:25px;">
+                    <h3 style="color:white; margin-top:0;">What does it do?</h3>
+                    <ul style="color:#ccc; padding-left:20px; margin-bottom:0; line-height:1.5;">
+                        <li>Scan physical cards with your camera</li>
+                        <li>Design new cards with text, shapes & stickers</li>
+                        <li>Easily share cards via chat, email, and mobile apps</li>
+                        <li>Download standalone HTML files to keep forever</li>
+                    </ul>
+                </div>
+
+                <div
+                    style="text-align:center; color:#888; font-size:0.9rem; border-top:1px solid rgba(255,255,255,0.1); padding-top:20px;">
+                    Developed by <strong style="color:white;">Michael Evans</strong>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // Info Modal Logic
+            document.getElementById('btn-app-info').onclick = () => {
+                document.getElementById('modal-app-info').classList.remove('hidden');
+            };
+            document.getElementById('btn-close-info').onclick = () => {
+                document.getElementById('modal-app-info').classList.add('hidden');
+            };
+            document.getElementById('modal-app-info').onclick = (e) => {
+                if (e.target === document.getElementById('modal-app-info')) {
+                    document.getElementById('modal-app-info').classList.add('hidden');
+                }
+            };
+        </script>
 
         <!-- Main Viewport -->
         <div id="viewport">
@@ -2239,8 +2291,22 @@
         */
 
         document.getElementById('btn-camera-scan').onclick = () => {
-            STATE.camera.step = 'outside';
-            startCamera();
+            // Instructions
+            showCustomAlert(
+                "Use your camera to scan a physical card.\n\nFor best results, place the card on a flat surface with good lighting.",
+                "Camera Instructions",
+                () => {
+                    // Step 1: Alert then Start Camera
+                    showCustomAlert(
+                        "Step 1: Capture the FRONT/BACK (Outside) of the card.",
+                        "Camera - Step 1/2",
+                        () => {
+                            STATE.camera.step = 'outside';
+                            startCamera();
+                        }
+                    );
+                }
+            );
         };
 
         async function startCamera() {
@@ -2397,10 +2463,24 @@
                     Canvas2D.render();
 
                     // Move to Step 2
-                    showToast("Front Captured! Now capture Inside.");
+                    // showToast("Front Captured! Now capture Inside.");
                     STATE.camera.step = 'inside';
                     previewDiv.style.display = 'none';
-                    // Stay in camera mode
+
+                    // Pause camera briefly or just hide preview? 
+                    // We are still in the modal.
+                    // Show Step 2 Alert on top of camera modal? 
+                    // Yes, we can overlay it.
+
+                    // Stop stream temporarily? No, keep it running for smoothness, just show alert.
+
+                    showCustomAlert(
+                        "Great! Now capture the INSIDE of the card.",
+                        "Camera - Step 2/2",
+                        () => {
+                            // Ready for inside
+                        }
+                    );
                 } else {
                     STATE.layers.inside = [item];
                     Canvas2D.render();
