@@ -3687,7 +3687,8 @@
 
                 result.items.forEach(item => {
                     // Manual Public URL (Works if Bucket is Public/Guest-Enabled)
-                    const url = `https://${bucket}.s3.${region}.amazonaws.com/public/${item.key}`;
+                    // Use shorter Amplify Rewrite URL
+                    const url = `${window.location.origin}/v/${item.key}`;
 
                     const itemEl = document.createElement('div');
                     itemEl.style.cssText = "background: #333; padding: 15px; border-radius: 8px; border: 1px solid #555; display:flex; flex-direction:column; gap:10px;";
@@ -4040,7 +4041,8 @@
 
                 const bucket = awsconfig.aws_user_files_s3_bucket;
                 const region = awsconfig.aws_user_files_s3_bucket_region;
-                const url = `https://${bucket}.s3.${region}.amazonaws.com/public/${key}`;
+                // Use shorter Amplify Rewrite URL
+                const url = `${window.location.origin}/v/${key}`;
 
                 showPublishSuccessModal(url);
 
