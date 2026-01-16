@@ -3687,8 +3687,11 @@
 
                 result.items.forEach(item => {
                     // Manual Public URL (Works if Bucket is Public/Guest-Enabled)
-                    // Use shorter Amplify Rewrite URL
-                    const url = `${window.location.origin}/v/${item.key}`;
+                    // If localhost, use full S3 link. Else use rewrite.
+                    // If localhost, use production domain for rewrite testing
+                    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                    const origin = isLocal ? 'https://prod.d11b9xr1x72gdk.amplifyapp.com' : window.location.origin;
+                    const url = `${origin}/v/${item.key}`;
 
                     const itemEl = document.createElement('div');
                     itemEl.style.cssText = "background: #333; padding: 15px; border-radius: 8px; border: 1px solid #555; display:flex; flex-direction:column; gap:10px;";
@@ -4041,8 +4044,12 @@
 
                 const bucket = awsconfig.aws_user_files_s3_bucket;
                 const region = awsconfig.aws_user_files_s3_bucket_region;
-                // Use shorter Amplify Rewrite URL
-                const url = `${window.location.origin}/v/${key}`;
+
+                // If localhost, use full S3 link. Else use rewrite.
+                // If localhost, use production domain for rewrite testing
+                const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                const origin = isLocal ? 'https://prod.d11b9xr1x72gdk.amplifyapp.com' : window.location.origin;
+                const url = `${origin}/v/${key}`;
 
                 showPublishSuccessModal(url);
 
