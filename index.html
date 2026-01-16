@@ -443,7 +443,6 @@
 
     <!-- Mobile Toggles -->
     <button id="btn-toggle-left" class="mobile-toggle">☰</button>
-    <button id="btn-toggle-right" class="mobile-toggle">⚙️</button>
     <div id="mobile-backdrop"></div>
 
     <div id="app">
@@ -1629,6 +1628,10 @@
 
             // Allow transition time if we just switched
             setTimeout(() => {
+                // Explicitly close Left Panel immediately
+                const leftPanel = document.querySelector('.panel:not(.panel-right)');
+                if (leftPanel) leftPanel.classList.remove('open');
+
                 const isInside = STATE.viewMode.includes('inside');
                 const list = isInside ? STATE.layers.inside : STATE.layers.outside;
 
@@ -1698,22 +1701,7 @@
         }
         // document.getElementById('btn-add-rect').onclick = addRect; // Removed
 
-        // Mobile Toggle Logic
-        document.getElementById('btn-toggle-left').addEventListener('click', () => {
-            document.querySelector('.panel').classList.toggle('active');
-            document.getElementById('mobile-backdrop').classList.toggle('active');
-        });
-
-        document.getElementById('btn-toggle-right').addEventListener('click', () => {
-            document.getElementById('prop-panel').classList.toggle('active');
-            document.getElementById('mobile-backdrop').classList.toggle('active');
-        });
-
-        document.getElementById('mobile-backdrop').addEventListener('click', () => {
-            document.querySelector('.panel').classList.remove('active');
-            document.getElementById('prop-panel').classList.remove('active');
-            document.getElementById('mobile-backdrop').classList.remove('active');
-        });
+        // Mobile Toggle Logic handled at end of file (lines ~3834)
 
 
 
@@ -1737,6 +1725,10 @@
         function addShape(subtype) {
             if (STATE.viewMode === 'orbit') setMode('front');
             setTimeout(() => {
+                // Explicitly close Left Panel immediately
+                const leftPanel = document.querySelector('.panel:not(.panel-right)');
+                if (leftPanel) leftPanel.classList.remove('open');
+
                 const isInside = STATE.viewMode.includes('inside');
                 const list = isInside ? STATE.layers.inside : STATE.layers.outside;
                 const x = isInside ? (STATE.viewMode === 'inside-right' ? Canvas2D.width * 0.75 : Canvas2D.width * 0.25)
@@ -1881,6 +1873,9 @@
                         ratioLocked: true
                     });
                     Canvas2D.render();
+                    // Explicitly close Left Panel only
+                    const leftPanel = document.querySelector('.panel:not(.panel-right)');
+                    if (leftPanel) leftPanel.classList.remove('open');
                 };
                 img.src = src;
             }, 100);
@@ -2008,7 +2003,6 @@
                     item.width = ctx.measureText(item.text).width;
                     Canvas2D.render();
                 }));
-                content.appendChild(createPropColor('Color', item.color, v => { item.color = v; Canvas2D.render(); }));
                 content.appendChild(createPropColor('Color', item.color, v => { item.color = v; Canvas2D.render(); }));
             } else if (item.type === 'shape') {
                 content.appendChild(createPropInput('Width', item.width, v => { item.width = parseInt(v); Canvas2D.render(); }));
@@ -3833,7 +3827,6 @@
 
         // Mobile UI Logic
         const btnToggleLeft = document.getElementById('btn-toggle-left');
-        const btnToggleRight = document.getElementById('btn-toggle-right');
         const backdrop = document.getElementById('mobile-backdrop');
         const panelLeft = document.querySelector('.panel');
         const panelRight = document.querySelector('.panel-right');
@@ -3844,21 +3837,12 @@
             if (backdrop) backdrop.classList.remove('active');
         }
 
-        if (btnToggleLeft && btnToggleRight && backdrop) {
+        if (btnToggleLeft && backdrop) {
             btnToggleLeft.onclick = () => {
                 const isOpen = panelLeft.classList.contains('open');
                 closeAllPanels();
                 if (!isOpen) {
                     panelLeft.classList.add('open');
-                    backdrop.classList.add('active');
-                }
-            };
-
-            btnToggleRight.onclick = () => {
-                const isOpen = panelRight.classList.contains('open');
-                closeAllPanels();
-                if (!isOpen) {
-                    panelRight.classList.add('open');
                     backdrop.classList.add('active');
                 }
             };
